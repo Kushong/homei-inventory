@@ -1,0 +1,23 @@
+# dependencies
+node_modules/
+
+# env
+.env
+.env.local
+.env*.local
+
+# next.js
+.next/
+out/
+
+# build
+dist/
+build/
+
+# misc
+.DS_Store
+*.log
+npm-debug.log*
+
+# vercel
+.vercel
