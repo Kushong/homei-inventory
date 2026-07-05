@@ -10,9 +10,9 @@ function stockBadge(qty, safety) {
   return { cls: 'ok', label: '정상' };
 }
 
-function won(n) {
+function usd(n) {
   const v = Number(n || 0);
-  return '₩' + v.toLocaleString('ko-KR');
+  return '$' + v.toLocaleString('en-US');
 }
 
 export default function Dashboard({ products, stats, categories, isSuper, userId }) {
@@ -307,7 +307,7 @@ export default function Dashboard({ products, stats, categories, isSuper, userId
                         </div>
                       </td>
                       <td>{p.category_name ? <span className="badge cat">{p.category_name}</span> : <span className="faint">—</span>}</td>
-                      <td className="r num">{won(p.price)}</td>
+                      <td className="r num">{usd(p.price)}</td>
                       <td className="r">
                         <div className="stock-cell">
                           <span className="stock-num num">{p.stock_quantity}</span>
@@ -355,7 +355,7 @@ export default function Dashboard({ products, stats, categories, isSuper, userId
 
             <div className="row2">
               <div className="field">
-                <label>단가 (원)</label>
+                <label>단가 ($)</label>
                 <input type="number" min="0" value={form.price} onChange={(e) => upd('price', e.target.value)} placeholder="0" />
               </div>
               <div className="field">
