@@ -1,23 +1,18 @@
 # dependencies
-node_modules/
-
-# env
-.env
-.env.local
-.env*.local
+/node_modules
 
 # next.js
-.next/
-out/
+/.next/
+/out/
 
-# build
-dist/
-build/
+# production
+/build
+
+# env — 절대 커밋 금지 (키가 들어있음)
+.env
+.env*.local
 
 # misc
 .DS_Store
 *.log
-npm-debug.log*
-
-# vercel
 .vercel
