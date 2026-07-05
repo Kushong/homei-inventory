@@ -19,14 +19,19 @@ function LoginForm() {
     setErr('');
     if (!email || !password) { setErr('이메일과 비밀번호를 입력하세요.'); return; }
     setLoading(true);
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
-    setLoading(false);
-    if (error) {
-      setErr('로그인에 실패했습니다. 이메일과 비밀번호를 확인하세요.');
-      return;
+    try {
+      const { error } = await supabase.auth.signInWithPassword({ email, password });
+      if (error) {
+        setErr('로그인 실패: ' + error.message);
+        setLoading(false);
+        return;
+      }
+      // 로그인 성공 → 서버 세션까지 확실히 반영되도록 전체 새로고침으로 이동
+      window.location.assign(next);
+    } catch (e) {
+      setErr('로그인 중 오류: ' + (e?.message || String(e)));
+      setLoading(false);
     }
-    router.push(next);
-    router.refresh();
   }
 
   return (
