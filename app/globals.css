@@ -288,3 +288,22 @@ tbody tr.clickable:hover { background: #fbfaf7; }
 .modal-foot { display: flex; gap: 10px; margin-top: 8px; }
 .modal-foot .btn { flex: 1; }
 }
+
+/* 이미지 업로더 */
+.uploader { display: flex; gap: 14px; align-items: flex-start; flex-wrap: wrap; }
+.up-zone {
+  width: 96px; height: 96px; flex-shrink: 0; position: relative; overflow: hidden;
+  border: 1.5px dashed var(--line); border-radius: var(--radius-sm);
+  background: var(--line-2); cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  transition: border-color .15s, background .15s;
+}
+.up-zone:hover, .up-zone:focus-visible { border-color: var(--brand); background: #fff; outline: none; }
+.up-zone.busy { cursor: progress; }
+.up-preview { width: 100%; height: 100%; object-fit: cover; }
+.up-ph { display: flex; flex-direction: column; align-items: center; gap: 6px; color: var(--faint); font-size: 11px; text-align: center; padding: 6px; }
+.up-busy { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; background: rgba(255,255,255,.72); font-size: 12px; font-weight: 600; color: var(--muted); }
+.up-side { display: flex; flex-direction: column; gap: 8px; padding-top: 2px; }
+.up-clear { background: none; border: none; color: var(--danger); font-size: 12px; font-weight: 600; cursor: pointer; padding: 0; text-align: left; }
+.up-hint { margin: 2px 0 0; font-size: 11.5px; color: var(--faint); line-height: 1.4; max-width: 200px; }
+.up-err { flex-basis: 100%; margin-top: 8px; color: var(--danger); font-size: 12.5px; }
