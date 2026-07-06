@@ -1,12 +1,11 @@
 'use client';
 
-import { Suspense, useState } from 'react';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { Suspense, useEffect, useState } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 
 function LoginForm() {
   const supabase = createClient();
-  const router = useRouter();
   const params = useSearchParams();
   const next = params.get('next') || '/';
 
@@ -14,6 +13,14 @@ function LoginForm() {
   const [password, setPassword] = useState('');
   const [err, setErr] = useState('');
   const [loading, setLoading] = useState(false);
+
+  // 이미 로그인된 상태로 /login 에 오면 바로 홈(또는 next)으로 보냄
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data }) => {
+      if (data.session) window.location.replace(next);
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   async function submit() {
     setErr('');
@@ -26,8 +33,11 @@ function LoginForm() {
         setLoading(false);
         return;
       }
-      // 로그인 성공 → 서버 세션까지 확실히 반영되도록 전체 새로고침으로 이동
-      window.location.assign(next);
+      // 세션 쿠키가 브라우저에 확실히 기록될 때까지 한 번 더 확인
+      await supabase.auth.getSession();
+      // 서버 컴포넌트가 새 세션을 읽도록 전체 새로고침으로 이동
+      // replace: 로그인 후 뒤로가기 시 로그인폼이 다시 뜨지 않게
+      window.location.replace(next);
     } catch (e) {
       setErr('로그인 중 오류: ' + (e?.message || String(e)));
       setLoading(false);
