@@ -377,8 +377,7 @@ export default function Dashboard({ products, stats, categories, isSuper, userId
                 disabled={saving}
               />
             </div>
-            </div>
-
+         
             <div className="modal-foot">
               <button className="btn ghost" type="button" onClick={() => setShowAdd(false)} disabled={saving}>취소</button>
               <button className="btn" type="button" onClick={createProduct} disabled={saving}>
