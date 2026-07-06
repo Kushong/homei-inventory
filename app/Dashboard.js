@@ -3,6 +3,7 @@
 import { useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
+import ImageUploader from './components/ImageUploader';
 
 function stockBadge(qty, safety) {
   if (qty <= 0) return { cls: 'zero', label: '재고 없음' };
@@ -363,16 +364,19 @@ export default function Dashboard({ products, stats, categories, isSuper, userId
                 <input type="number" min="0" value={form.safety} onChange={(e) => upd('safety', e.target.value)} placeholder="0" />
               </div>
             </div>
+            <div className="field">
+              <label>초기 재고 (선택)</label>
+              <input type="number" min="0" value={form.initStock} onChange={(e) => upd('initStock', e.target.value)} placeholder="0" />
+            </div>
 
-            <div className="row2">
-              <div className="field">
-                <label>초기 재고 (선택)</label>
-                <input type="number" min="0" value={form.initStock} onChange={(e) => upd('initStock', e.target.value)} placeholder="0" />
-              </div>
-              <div className="field">
-                <label>이미지 URL (선택)</label>
-                <input value={form.imageUrl} onChange={(e) => upd('imageUrl', e.target.value)} placeholder="https://…" />
-              </div>
+            <div className="field">
+              <label>상품 이미지 (선택)</label>
+              <ImageUploader
+                value={form.imageUrl}
+                onChange={(url) => upd('imageUrl', url)}
+                disabled={saving}
+              />
+            </div>
             </div>
 
             <div className="modal-foot">
