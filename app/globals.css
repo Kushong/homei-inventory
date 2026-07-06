@@ -252,7 +252,9 @@ tbody tr.clickable:hover { background: #fbfaf7; }
 
 @media (prefers-reduced-motion: reduce) {
   * { transition: none !important; }
-  /* ---------- 관리자: 상품 등록 / 선택 삭제 ---------- */
+}
+
+/* ---------- 관리자: 상품 등록 / 선택 삭제 ---------- */
 .btn.sm { height: 38px; padding: 0 15px; font-size: 13.5px; }
 
 .check-col { width: 42px; text-align: center; }
@@ -287,7 +289,6 @@ tbody tr.clickable:hover { background: #fbfaf7; }
 .modal-card .sub { margin: 0 0 18px; color: var(--muted); font-size: 13px; }
 .modal-foot { display: flex; gap: 10px; margin-top: 8px; }
 .modal-foot .btn { flex: 1; }
-}
 
 /* 이미지 업로더 */
 .uploader { display: flex; gap: 14px; align-items: flex-start; flex-wrap: wrap; }
