@@ -14,7 +14,7 @@ function LoginForm() {
   const [err, setErr] = useState('');
   const [loading, setLoading] = useState(false);
 
-  // 이미 로그인된 상태로 /login 에 오면 바로 홈(또는 next)으로 보냄
+  // 이미 로그인된 상태로 /login 에 오면 바로 홈으로
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
       if (data.session) window.location.replace(next);
@@ -33,9 +33,8 @@ function LoginForm() {
         setLoading(false);
         return;
       }
-      // 세션 쿠키가 브라우저에 확실히 기록될 때까지 한 번 더 확인 (핵심 수정)
-      await supabase.auth.getSession();
-      // 서버 컴포넌트가 새 세션을 읽도록 전체 새로고침으로 이동
+      // ★ getSession() 대기 줄 제거 → 락 데드락 없이 즉시 이동
+      // signInWithPassword 시점에 세션 쿠키는 이미 기록됨
       window.location.replace(next);
     } catch (e) {
       setErr('로그인 중 오류: ' + (e?.message || String(e)));
