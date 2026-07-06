@@ -16,6 +16,16 @@ function usd(n) {
   return '$' + v.toLocaleString('en-US');
 }
 
+// SKU 자동 생성: 기존 HI-### 중 최대 번호 +1 (3자리 0채움)
+function genSku(products) {
+  const nums = (products || []).map((p) => {
+    const m = /^HI-(\d+)$/.exec(p.sku || '');
+    return m ? parseInt(m[1], 10) : 0;
+  });
+  const next = (nums.length ? Math.max(0, ...nums) : 0) + 1;
+  return 'HI-' + String(next).padStart(3, '0');
+}
+
 export default function Dashboard({ products, stats, categories, isSuper, userId }) {
   const router = useRouter();
   const supabase = createClient();
@@ -123,17 +133,17 @@ export default function Dashboard({ products, stats, categories, isSuper, userId
 
   async function createProduct() {
     setFErr('');
-    if (!form.sku.trim()) { setFErr('SKU(상품코드)를 입력하세요.'); return; }
     if (!form.name.trim()) { setFErr('상품명을 입력하세요.'); return; }
 
     setSaving(true);
     try {
       const categoryId = await resolveCategoryId(form.category);
       const productId = crypto.randomUUID();
+      const sku = form.sku.trim() || genSku(products);
 
       const { error } = await supabase.from('products').insert({
         id: productId,
-        sku: form.sku.trim(),
+        sku,
         name: form.name.trim(),
         category_id: categoryId,
         price: Number(form.price) || 0,
@@ -337,8 +347,8 @@ export default function Dashboard({ products, stats, categories, isSuper, userId
 
             <div className="row2">
               <div className="field">
-                <label>SKU · 상품코드 *</label>
-                <input value={form.sku} onChange={(e) => upd('sku', e.target.value)} placeholder="예: TS-002" />
+                <label>SKU · 상품코드 <span className="faint" style={{ fontWeight: 500 }}>(비워두면 자동)</span></label>
+                <input value={form.sku} onChange={(e) => upd('sku', e.target.value)} placeholder={`자동 생성: ${genSku(products)}`} />
               </div>
               <div className="field">
                 <label>카테고리</label>
