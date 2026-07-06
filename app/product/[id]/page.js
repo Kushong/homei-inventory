@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { redirect, notFound } from 'next/navigation';
 import { createClient } from '@/lib/supabase/server';
 import TransactionForm from './TransactionForm';
+import ProductThumb from '@/app/components/ProductThumb';
 
 export const dynamic = 'force-dynamic';
 
@@ -28,6 +29,14 @@ export default async function ProductDetail({ params }) {
 
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) redirect(`/login?next=/product/${id}`);
+
+  // 최고관리자(super)만 대표 이미지 변경 가능
+  const { data: prof } = await supabase
+    .from('admin_profiles')
+    .select('role')
+    .eq('id', user.id)
+    .maybeSingle();
+  const isSuper = prof?.role === 'super';
 
   // 상품 개요 (재고/판매/샘플 포함)
   const { data: product } = await supabase
@@ -77,9 +86,7 @@ export default async function ProductDetail({ params }) {
       </Link>
 
       <div className="detail-head">
-        {product.image_url
-          ? <img className="thumb-lg" src={product.image_url} alt="" />
-          : <div className="thumb-lg ph">IMG</div>}
+        <ProductThumb productId={id} imageUrl={product.image_url} editable={isSuper} />
         <div>
           <div className="title">{product.name}</div>
           <div className="subline">
