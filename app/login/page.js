@@ -33,10 +33,9 @@ function LoginForm() {
         setLoading(false);
         return;
       }
-      // 세션 쿠키가 브라우저에 확실히 기록될 때까지 한 번 더 확인
+      // 세션 쿠키가 브라우저에 확실히 기록될 때까지 한 번 더 확인 (핵심 수정)
       await supabase.auth.getSession();
       // 서버 컴포넌트가 새 세션을 읽도록 전체 새로고침으로 이동
-      // replace: 로그인 후 뒤로가기 시 로그인폼이 다시 뜨지 않게
       window.location.replace(next);
     } catch (e) {
       setErr('로그인 중 오류: ' + (e?.message || String(e)));
