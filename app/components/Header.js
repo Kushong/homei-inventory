@@ -25,10 +25,15 @@ export default function Header() {
     }
 
     supabase.auth.getUser().then(({ data }) => load(data.user));
+
     const { data: sub } = supabase.auth.onAuthStateChange((_e, session) => {
-      load(session?.user);
-      router.refresh();
+      // ★ 콜백 안에서 곧바로 supabase 호출 시 auth 락 경합 → setTimeout으로 밖에서 실행
+      setTimeout(() => {
+        load(session?.user);
+        router.refresh();
+      }, 0);
     });
+
     return () => { active = false; sub.subscription.unsubscribe(); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
