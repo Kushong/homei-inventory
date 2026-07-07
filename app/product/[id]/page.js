@@ -3,7 +3,7 @@ import { redirect, notFound } from 'next/navigation';
 import { createClient } from '@/lib/supabase/server';
 import TransactionForm from './TransactionForm';
 import ProductThumb from '@/app/components/ProductThumb';
-import VariantManager from './VariantManager';
+import VariantManager from './Variantmanager';
 
 export const dynamic = 'force-dynamic';
 
@@ -127,7 +127,7 @@ export default async function ProductDetail({ params }) {
           <div className="subline">
             <span className="mono">{product.sku}</span>
             {product.category_name && <span className="badge cat">{product.category_name}</span>}
-            <span>단가 <b className="num">₩{Number(product.price || 0).toLocaleString('ko-KR')}</b></span>
+            <span>단가 <b className="num">${Number(product.price || 0).toLocaleString('en-US')}</b></span>
           </div>
         </div>
         <div style={{ marginLeft: 'auto', textAlign: 'right' }}>
