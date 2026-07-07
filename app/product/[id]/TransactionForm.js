@@ -38,6 +38,7 @@ export default function TransactionForm({ productId, userId, otherProducts, vari
   const [qty, setQty] = useState('');
   const [note, setNote] = useState('');
   const [variantId, setVariantId] = useState(() => initialVariantId(variants));
+  const [tierKey, setTierKey] = useState(''); // 선택한 세트(pack_qty 문자열). ''=직접입력
 
   // 교환 전용
   const [swapId, setSwapId] = useState('');
@@ -48,6 +49,19 @@ export default function TransactionForm({ productId, userId, otherProducts, vari
   const [saving, setSaving] = useState(false);
 
   const createdAt = new Date(`${date}T12:00:00`).toISOString();
+
+  // 선택된 옵션(없으면 단일 옵션) 기준 세트가격
+  const selectedVariant = variantId
+    ? variants.find((v) => v.id === variantId)
+    : (variants.length === 1 ? variants[0] : null);
+  const tiers = (selectedVariant && selectedVariant.tiers) || [];
+  const showSets = type.reason === 'SALE' && tiers.length > 0;
+
+  function pickSet(t) {
+    setTierKey(String(t.pack_qty));
+    setQty(String(t.pack_qty));
+    setErr('');
+  }
 
   async function submit() {
     setErr(''); setOk('');
@@ -61,6 +75,16 @@ export default function TransactionForm({ productId, userId, otherProducts, vari
 
     // variant_id: 선택값이 있으면 명시, 없으면 null → DB 트리거가 기본 옵션으로 채움
     const vId = variantId || null;
+
+    // 세트 판매: 선택한 세트 라벨을 메모에 남김 (수량은 이미 pack_qty로 채워져 있음)
+    let finalNote = note || null;
+    if (showSets && tierKey) {
+      const t = tiers.find((x) => String(x.pack_qty) === tierKey);
+      if (t) {
+        const label = `${t.pack_qty}개 세트 ($${Number(t.price).toLocaleString('en-US')})`;
+        finalNote = note ? `${note} · ${label}` : label;
+      }
+    }
 
     let payload;
     if (type.special) {
@@ -82,7 +106,7 @@ export default function TransactionForm({ productId, userId, otherProducts, vari
         direction: type.direction,
         reason: type.reason,
         quantity: n,
-        note: note || null,
+        note: finalNote,
         created_by: userId,
         created_at: createdAt,
       }];
@@ -96,7 +120,7 @@ export default function TransactionForm({ productId, userId, otherProducts, vari
       return;
     }
     setOk('거래가 등록되었습니다.');
-    setQty(''); setNote(''); setSwapId(''); setSwapQty('');
+    setQty(''); setNote(''); setSwapId(''); setSwapQty(''); setTierKey('');
     // 옵션 선택은 유지(같은 옵션 연속 등록 편의)
     router.refresh();
     setTimeout(() => setOk(''), 2500);
@@ -113,7 +137,7 @@ export default function TransactionForm({ productId, userId, otherProducts, vari
           <button
             key={t.key}
             className={`${type.key === t.key ? 'on dir-' + t.dir : ''}`}
-            onClick={() => { setType(t); setErr(''); }}
+            onClick={() => { setType(t); setErr(''); setTierKey(''); }}
             type="button"
           >
             <span>{t.key}</span>
@@ -135,7 +159,7 @@ export default function TransactionForm({ productId, userId, otherProducts, vari
             className="filter"
             style={{ width: '100%', height: 44 }}
             value={variantId}
-            onChange={(e) => { setVariantId(e.target.value); setErr(''); }}
+            onChange={(e) => { setVariantId(e.target.value); setTierKey(''); setErr(''); }}
           >
             <option value="">옵션 선택…</option>
             {variants.map((v) => (
@@ -147,6 +171,35 @@ export default function TransactionForm({ productId, userId, otherProducts, vari
         </div>
       )}
 
+      {/* 세트 선택: 판매 유형이고 세트가격이 있을 때만 노출 */}
+      {showSets && (
+        <div className="field">
+          <label>세트 · Set <span className="faint" style={{ fontWeight: 500 }}>(고르면 수량이 자동으로 채워집니다)</span></label>
+          <div className="seg" style={{ flexWrap: 'wrap' }}>
+            {tiers.map((t) => (
+              <button
+                key={t.pack_qty}
+                type="button"
+                className={tierKey === String(t.pack_qty) ? 'on dir-out' : ''}
+                onClick={() => pickSet(t)}
+              >
+                <span>{t.pack_qty}개</span>
+                <span className="sign">${Number(t.price).toLocaleString('en-US')}</span>
+              </button>
+            ))}
+            <button
+              type="button"
+              className={tierKey === '' ? 'on' : ''}
+              onClick={() => setTierKey('')}
+            >
+              <span>직접</span>
+              <span className="sign">입력</span>
+            </button>
+          </div>
+          <div className="hint">세트를 고른 만큼 재고가 빠집니다. 예: 3개 세트 → 재고 −3.</div>
+        </div>
+      )}
+
       <div className="row2">
         <div className="field">
           <label>일자 · Date</label>
@@ -154,7 +207,7 @@ export default function TransactionForm({ productId, userId, otherProducts, vari
         </div>
         <div className="field">
           <label>{type.special ? '나가는 수량' : '수량 · Qty'}</label>
-          <input type="number" min="1" value={qty} onChange={(e) => setQty(e.target.value)} placeholder="0" />
+          <input type="number" min="1" value={qty} onChange={(e) => { setQty(e.target.value); setTierKey(''); }} placeholder="0" />
         </div>
       </div>
 
