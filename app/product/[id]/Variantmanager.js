@@ -14,7 +14,6 @@ function usd(n) {
   return '$' + Number(n || 0).toLocaleString('en-US');
 }
 
-// 모달에서 쓰는 빈 폼
 function blankForm(nextSort) {
   return {
     id: null,
@@ -24,11 +23,13 @@ function blankForm(nextSort) {
     safety_stock: '',
     is_default: false,
     sort_order: nextSort,
-    tiers: [], // [{ pack_qty, price }]
+    currentStock: 0,   // 편집 시작 시점의 실제 재고
+    newStock: '',      // 사용자가 입력한 목표 재고
+    tiers: [],         // [{ pack_qty, price }]
   };
 }
 
-export default function VariantManager({ productId, canEdit, initialVariants }) {
+export default function VariantManager({ productId, canEdit, userId, initialVariants }) {
   const supabase = createClient();
   const router = useRouter();
 
@@ -38,13 +39,14 @@ export default function VariantManager({ productId, canEdit, initialVariants }) 
   const [form, setForm] = useState(null);
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState('');
+  const [warn, setWarn] = useState(''); // 재고 조정 경고(컨펌) 메시지
 
   function openAdd() {
     const nextSort = variants.length
       ? Math.max(...variants.map((v) => v.sort_order || 0)) + 1
       : 0;
     setForm(blankForm(nextSort));
-    setErr('');
+    setErr(''); setWarn('');
     setOpen(true);
   }
 
@@ -57,18 +59,18 @@ export default function VariantManager({ productId, canEdit, initialVariants }) 
       safety_stock: v.safety_stock == null ? '' : String(v.safety_stock),
       is_default: !!v.is_default,
       sort_order: v.sort_order || 0,
+      currentStock: v.stock_quantity || 0,
+      newStock: String(v.stock_quantity || 0),
       tiers: (v.tiers || []).map((t) => ({
         pack_qty: String(t.pack_qty),
         price: String(t.price),
       })),
     });
-    setErr('');
+    setErr(''); setWarn('');
     setOpen(true);
   }
 
-  function setField(k, val) {
-    setForm((f) => ({ ...f, [k]: val }));
-  }
+  function setField(k, val) { setForm((f) => ({ ...f, [k]: val })); }
 
   function addTier() {
     setForm((f) => ({ ...f, tiers: [...f.tiers, { pack_qty: '', price: '' }] }));
@@ -84,12 +86,31 @@ export default function VariantManager({ productId, canEdit, initialVariants }) 
     setForm((f) => ({ ...f, tiers: f.tiers.filter((_, idx) => idx !== i) }));
   }
 
-  async function save() {
-    setErr('');
-    const name = form.option_name.trim();
-    if (!name) { setErr('옵션명을 입력하세요.'); return; }
+  // 목표 재고 - 현재 재고 = 조정량
+  function stockDelta() {
+    const target = parseInt(form.newStock, 10);
+    if (Number.isNaN(target)) return 0;
+    return target - (form.currentStock || 0);
+  }
 
-    // 세트가격 정리 (수량 1 초과 + 단가 입력된 행만)
+  // 저장 버튼: 재고가 바뀌었으면 경고 컨펌부터
+  function onSaveClick() {
+    setErr('');
+    if (!form.option_name.trim()) { setErr('옵션명을 입력하세요.'); return; }
+    const d = stockDelta();
+    if (form.id && d !== 0) {
+      const target = parseInt(form.newStock, 10);
+      setWarn(`현재고를 ${form.currentStock} → ${target} (으)로 ${d > 0 ? '늘립니다' : '줄입니다'}. ` +
+        `이 변경은 "조정" 거래 ${d > 0 ? '+' : '−'}${Math.abs(d)} 로 이력에 영구 기록됩니다. 계속할까요?`);
+      return;
+    }
+    doSave();
+  }
+
+  async function doSave() {
+    setWarn('');
+    const name = form.option_name.trim();
+
     const tiers = form.tiers
       .map((t) => ({ pack_qty: parseInt(t.pack_qty, 10), price: Number(t.price) }))
       .filter((t) => t.pack_qty >= 1 && !Number.isNaN(t.price));
@@ -108,43 +129,50 @@ export default function VariantManager({ productId, canEdit, initialVariants }) 
       sort_order: parseInt(form.sort_order, 10) || 0,
     };
 
-    // 기본옵션으로 지정하면 같은 상품의 다른 옵션은 기본 해제
     if (form.is_default) {
       const { error: e0 } = await supabase
-        .from('product_variants')
-        .update({ is_default: false })
-        .eq('product_id', productId)
-        .neq('id', variantId);
+        .from('product_variants').update({ is_default: false })
+        .eq('product_id', productId).neq('id', variantId);
       if (e0) { setErr('기본옵션 갱신 실패: ' + e0.message); setSaving(false); return; }
     }
 
-    // 옵션 저장 (신규 insert / 기존 update)
     let vErr;
     if (form.id) {
       const { id, product_id, ...upd } = payload;
-      ({ error: vErr } = await supabase
-        .from('product_variants').update(upd).eq('id', form.id));
+      ({ error: vErr } = await supabase.from('product_variants').update(upd).eq('id', form.id));
     } else {
-      ({ error: vErr } = await supabase
-        .from('product_variants').insert(payload));
+      ({ error: vErr } = await supabase.from('product_variants').insert(payload));
     }
     if (vErr) {
       setErr(vErr.code === '23505' ? '이미 존재하는 SKU입니다.' : '저장 실패: ' + vErr.message);
-      setSaving(false);
-      return;
+      setSaving(false); return;
     }
 
-    // 세트가격: 기존 전부 삭제 후 재삽입 (간단·안정)
+    // 세트가격: 전부 삭제 후 재삽입
     await supabase.from('variant_price_tiers').delete().eq('variant_id', variantId);
     if (tiers.length) {
       const rows = tiers.map((t) => ({
-        id: crypto.randomUUID(),
-        variant_id: variantId,
-        pack_qty: t.pack_qty,
-        price: t.price,
+        id: crypto.randomUUID(), variant_id: variantId, pack_qty: t.pack_qty, price: t.price,
       }));
       const { error: tErr } = await supabase.from('variant_price_tiers').insert(rows);
       if (tErr) { setErr('세트가격 저장 실패: ' + tErr.message); setSaving(false); return; }
+    }
+
+    // 재고 조정: 목표-현재 차이만큼 '조정' 거래 기록 (늘리면 ADJUST+, 줄이면 OUT−)
+    const d = stockDelta();
+    const startStock = form.id ? (form.currentStock || 0) : 0;
+    const target = parseInt(form.newStock, 10);
+    if (!Number.isNaN(target) && d !== 0) {
+      const { error: adjErr } = await supabase.from('inventory_transactions').insert({
+        product_id: productId,
+        variant_id: variantId,
+        direction: d > 0 ? 'ADJUST' : 'OUT',
+        reason: 'ADJUSTMENT',
+        quantity: Math.abs(d),
+        note: `재고 조정 (${startStock} → ${target})`,
+        created_by: userId,
+      });
+      if (adjErr) { setErr('재고 조정 실패: ' + adjErr.message); setSaving(false); return; }
     }
 
     setSaving(false);
@@ -158,7 +186,6 @@ export default function VariantManager({ productId, canEdit, initialVariants }) 
       alert('마지막 옵션은 삭제할 수 없습니다. 상품에는 최소 1개의 옵션이 필요합니다.');
       return;
     }
-    // 거래 이력이 있으면 삭제 금지 (재고 어긋남 방지)
     const { count } = await supabase
       .from('inventory_transactions')
       .select('id', { count: 'exact', head: true })
@@ -173,12 +200,10 @@ export default function VariantManager({ productId, canEdit, initialVariants }) 
     const { error } = await supabase.from('product_variants').delete().eq('id', v.id);
     if (error) { alert('삭제 실패: ' + error.message); return; }
 
-    // 기본옵션을 지웠다면 남은 것 중 하나를 기본으로
     if (v.is_default) {
       const left = variants.filter((x) => x.id !== v.id);
       if (left.length) {
-        await supabase.from('product_variants')
-          .update({ is_default: true }).eq('id', left[0].id);
+        await supabase.from('product_variants').update({ is_default: true }).eq('id', left[0].id);
       }
     }
     router.refresh();
@@ -252,56 +277,78 @@ export default function VariantManager({ productId, canEdit, initialVariants }) 
 
             <div className="field">
               <label>옵션명 · 예: 블랙 / L, 그린</label>
-              <input value={form.option_name} onChange={(e) => setField('option_name', e.target.value)} placeholder="옵션 이름" />
+              <input value={form.option_name} onChange={(e) => setField('option_name', e.target.value)} placeholder="옵션 이름" disabled={!!warn} />
             </div>
 
             <div className="row2">
               <div className="field">
                 <label>SKU (선택)</label>
-                <input value={form.sku} onChange={(e) => setField('sku', e.target.value)} placeholder="예: HI-001-BK" />
+                <input value={form.sku} onChange={(e) => setField('sku', e.target.value)} placeholder="예: HI-001-BK" disabled={!!warn} />
               </div>
               <div className="field">
                 <label>단가 ($)</label>
-                <input type="number" min="0" value={form.price} onChange={(e) => setField('price', e.target.value)} placeholder="0" />
+                <input type="number" min="0" value={form.price} onChange={(e) => setField('price', e.target.value)} placeholder="0" disabled={!!warn} />
               </div>
             </div>
 
             <div className="row2">
               <div className="field">
                 <label>안전재고</label>
-                <input type="number" min="0" value={form.safety_stock} onChange={(e) => setField('safety_stock', e.target.value)} placeholder="0" />
+                <input type="number" min="0" value={form.safety_stock} onChange={(e) => setField('safety_stock', e.target.value)} placeholder="0" disabled={!!warn} />
               </div>
-              <div className="field" style={{ display: 'flex', alignItems: 'flex-end' }}>
-                <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', marginBottom: 12 }}>
-                  <input type="checkbox" checked={form.is_default}
-                    onChange={(e) => setField('is_default', e.target.checked)}
-                    style={{ width: 17, height: 17, accentColor: 'var(--brand)' }} />
-                  기본옵션으로 지정
-                </label>
+              <div className="field">
+                <label>{form.id ? '현재고 (조정)' : '초기 재고'}</label>
+                <input type="number" value={form.newStock} onChange={(e) => setField('newStock', e.target.value)} placeholder="0" disabled={!!warn} />
               </div>
+            </div>
+            <div className="hint" style={{ margin: '-6px 0 12px' }}>
+              {form.id
+                ? '숫자를 바꾸면 차이만큼 "조정" 거래가 자동 기록됩니다(이력 보존).'
+                : '0보다 크면 "조정" 거래로 초기 재고가 잡힙니다.'}
+            </div>
+
+            <div className="field">
+              <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
+                <input type="checkbox" checked={form.is_default}
+                  onChange={(e) => setField('is_default', e.target.checked)}
+                  disabled={!!warn}
+                  style={{ width: 17, height: 17, accentColor: 'var(--brand)' }} />
+                기본옵션으로 지정
+              </label>
             </div>
 
             <div className="field">
               <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                 <span>세트가격 (수량별 단가 · 표시용)</span>
-                <button className="chip" type="button" onClick={addTier}>+ 추가</button>
+                {!warn && <button className="chip" type="button" onClick={addTier}>+ 추가</button>}
               </label>
               {form.tiers.length === 0 && (
                 <div className="hint" style={{ margin: '6px 0 0' }}>예: 2개 $13, 3개 $18 처럼 묶음 단가를 안내합니다.</div>
               )}
               {form.tiers.map((t, i) => (
                 <div key={i} className="row2" style={{ marginTop: 8, gridTemplateColumns: '1fr 1fr auto', alignItems: 'center' }}>
-                  <input type="number" min="1" value={t.pack_qty} onChange={(e) => setTier(i, 'pack_qty', e.target.value)} placeholder="수량 (개)" />
-                  <input type="number" min="0" value={t.price} onChange={(e) => setTier(i, 'price', e.target.value)} placeholder="단가 ($)" />
-                  <button className="chip" type="button" onClick={() => removeTier(i)} style={{ color: 'var(--danger)' }}>×</button>
+                  <input type="number" min="1" value={t.pack_qty} onChange={(e) => setTier(i, 'pack_qty', e.target.value)} placeholder="수량 (개)" disabled={!!warn} />
+                  <input type="number" min="0" value={t.price} onChange={(e) => setTier(i, 'price', e.target.value)} placeholder="단가 ($)" disabled={!!warn} />
+                  <button className="chip" type="button" onClick={() => removeTier(i)} style={{ color: 'var(--danger)' }} disabled={!!warn}>×</button>
                 </div>
               ))}
             </div>
 
-            <div className="modal-foot">
-              <button className="btn ghost" type="button" onClick={() => setOpen(false)} disabled={saving}>취소</button>
-              <button className="btn" type="button" onClick={save} disabled={saving}>{saving ? '저장 중…' : '저장'}</button>
-            </div>
+            {warn ? (
+              <>
+                <div className="form-error" style={{ background: 'var(--warn-bg)', color: 'var(--warn)' }}>⚠ {warn}</div>
+                <div className="modal-foot">
+                  <button className="btn ghost" type="button" onClick={() => setWarn('')} disabled={saving}>취소</button>
+                  <button className="btn" type="button" onClick={doSave} disabled={saving}
+                    style={{ background: 'var(--warn)' }}>{saving ? '조정 중…' : '조정하고 저장'}</button>
+                </div>
+              </>
+            ) : (
+              <div className="modal-foot">
+                <button className="btn ghost" type="button" onClick={() => setOpen(false)} disabled={saving}>취소</button>
+                <button className="btn" type="button" onClick={onSaveClick} disabled={saving}>{saving ? '저장 중…' : '저장'}</button>
+              </div>
+            )}
           </div>
         </div>
       )}
