@@ -19,14 +19,25 @@ function today() {
   return new Date(d - tz).toISOString().slice(0, 10);
 }
 
-export default function TransactionForm({ productId, userId, otherProducts }) {
+// 초기 선택 옵션: 1개면 그 옵션, 2개↑이면 빈 값(사용자 선택 강제)
+function initialVariantId(variants) {
+  if (!variants || variants.length === 0) return '';
+  if (variants.length === 1) return variants[0].id;
+  return '';
+}
+
+export default function TransactionForm({ productId, userId, otherProducts, variants = [] }) {
   const supabase = createClient();
   const router = useRouter();
+
+  const hasVariants = variants.length > 0;
+  const needChoice = variants.length >= 2; // 2개 이상이면 필수 선택
 
   const [type, setType] = useState(TYPES[0]);
   const [date, setDate] = useState(today());
   const [qty, setQty] = useState('');
   const [note, setNote] = useState('');
+  const [variantId, setVariantId] = useState(() => initialVariantId(variants));
 
   // 교환 전용
   const [swapId, setSwapId] = useState('');
@@ -43,7 +54,13 @@ export default function TransactionForm({ productId, userId, otherProducts }) {
     const n = parseInt(qty, 10);
     if (!n || n <= 0) { setErr('수량을 1 이상으로 입력하세요.'); return; }
 
+    // 옵션이 2개 이상이면 반드시 선택
+    if (needChoice && !variantId) { setErr('옵션을 선택하세요.'); return; }
+
     setSaving(true);
+
+    // variant_id: 선택값이 있으면 명시, 없으면 null → DB 트리거가 기본 옵션으로 채움
+    const vId = variantId || null;
 
     let payload;
     if (type.special) {
@@ -53,12 +70,15 @@ export default function TransactionForm({ productId, userId, otherProducts }) {
       if (!sn || sn <= 0) { setErr('대체 상품 수량을 1 이상으로 입력하세요.'); setSaving(false); return; }
       const group = crypto.randomUUID();
       payload = [
-        { product_id: productId, direction: 'OUT', reason: 'EXCHANGE_OUT', quantity: n, exchange_group_id: group, note: note || null, created_by: userId, created_at: createdAt },
-        { product_id: swapId,    direction: 'IN',  reason: 'EXCHANGE_IN',  quantity: sn, exchange_group_id: group, note: note || null, created_by: userId, created_at: createdAt },
+        // 현재 상품 OUT → 선택한 옵션 명시
+        { product_id: productId, variant_id: vId, direction: 'OUT', reason: 'EXCHANGE_OUT', quantity: n, exchange_group_id: group, note: note || null, created_by: userId, created_at: createdAt },
+        // 대체 상품 IN → 해당 상품의 기본 옵션으로 트리거가 채움
+        { product_id: swapId,    variant_id: null, direction: 'IN',  reason: 'EXCHANGE_IN',  quantity: sn, exchange_group_id: group, note: note || null, created_by: userId, created_at: createdAt },
       ];
     } else {
       payload = [{
         product_id: productId,
+        variant_id: vId,
         direction: type.direction,
         reason: type.reason,
         quantity: n,
@@ -77,6 +97,7 @@ export default function TransactionForm({ productId, userId, otherProducts }) {
     }
     setOk('거래가 등록되었습니다.');
     setQty(''); setNote(''); setSwapId(''); setSwapQty('');
+    // 옵션 선택은 유지(같은 옵션 연속 등록 편의)
     router.refresh();
     setTimeout(() => setOk(''), 2500);
   }
@@ -105,6 +126,26 @@ export default function TransactionForm({ productId, userId, otherProducts }) {
           ? '교환: 이 상품이 나가고(−), 선택한 대체 상품이 들어옵니다(+).'
           : type.dir === 'in' ? '재고가 늘어납니다 (+).' : '재고가 줄어듭니다 (−).'}
       </div>
+
+      {/* 옵션 선택: 2개 이상일 때만 노출(필수). 1개면 자동 배정되어 표시하지 않음 */}
+      {needChoice && (
+        <div className="field">
+          <label>옵션 · Option <span style={{ color: '#e5484d' }}>*</span></label>
+          <select
+            className="filter"
+            style={{ width: '100%', height: 44 }}
+            value={variantId}
+            onChange={(e) => { setVariantId(e.target.value); setErr(''); }}
+          >
+            <option value="">옵션 선택…</option>
+            {variants.map((v) => (
+              <option key={v.id} value={v.id}>
+                {v.name}{typeof v.stock_quantity === 'number' ? ` · 재고 ${v.stock_quantity}` : ''}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
 
       <div className="row2">
         <div className="field">
