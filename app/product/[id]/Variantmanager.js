@@ -10,8 +10,8 @@ function stockBadge(qty, safety) {
   return { cls: 'ok', label: '정상' };
 }
 
-function won(n) {
-  return '₩' + Number(n || 0).toLocaleString('ko-KR');
+function usd(n) {
+  return '$' + Number(n || 0).toLocaleString('en-US');
 }
 
 // 모달에서 쓰는 빈 폼
@@ -209,7 +209,7 @@ export default function VariantManager({ productId, canEdit, initialVariants }) 
             {variants.map((v) => {
               const b = stockBadge(v.stock_quantity, v.safety_stock);
               const tierText = (v.tiers || []).length
-                ? v.tiers.map((t) => `${t.pack_qty}개 ${won(t.price)}`).join(' · ')
+                ? v.tiers.map((t) => `${t.pack_qty}개 ${usd(t.price)}`).join(' · ')
                 : null;
               return (
                 <tr key={v.id}>
@@ -218,7 +218,7 @@ export default function VariantManager({ productId, canEdit, initialVariants }) 
                     {v.is_default && <span className="badge cat" style={{ marginLeft: 8 }}>기본</span>}
                   </td>
                   <td className="mono muted">{v.sku || <span className="faint">—</span>}</td>
-                  <td className="r num">{won(v.price)}</td>
+                  <td className="r num">{usd(v.price)}</td>
                   <td className="r">
                     <span className="stock-cell">
                       <span className="stock-num num">{v.stock_quantity}</span>
@@ -261,7 +261,7 @@ export default function VariantManager({ productId, canEdit, initialVariants }) 
                 <input value={form.sku} onChange={(e) => setField('sku', e.target.value)} placeholder="예: HI-001-BK" />
               </div>
               <div className="field">
-                <label>단가 (₩)</label>
+                <label>단가 ($)</label>
                 <input type="number" min="0" value={form.price} onChange={(e) => setField('price', e.target.value)} placeholder="0" />
               </div>
             </div>
@@ -287,12 +287,12 @@ export default function VariantManager({ productId, canEdit, initialVariants }) 
                 <button className="chip" type="button" onClick={addTier}>+ 추가</button>
               </label>
               {form.tiers.length === 0 && (
-                <div className="hint" style={{ margin: '6px 0 0' }}>예: 2개 ₩13, 3개 ₩18 처럼 묶음 단가를 안내합니다.</div>
+                <div className="hint" style={{ margin: '6px 0 0' }}>예: 2개 $13, 3개 $18 처럼 묶음 단가를 안내합니다.</div>
               )}
               {form.tiers.map((t, i) => (
                 <div key={i} className="row2" style={{ marginTop: 8, gridTemplateColumns: '1fr 1fr auto', alignItems: 'center' }}>
                   <input type="number" min="1" value={t.pack_qty} onChange={(e) => setTier(i, 'pack_qty', e.target.value)} placeholder="수량 (개)" />
-                  <input type="number" min="0" value={t.price} onChange={(e) => setTier(i, 'price', e.target.value)} placeholder="단가 (₩)" />
+                  <input type="number" min="0" value={t.price} onChange={(e) => setTier(i, 'price', e.target.value)} placeholder="단가 ($)" />
                   <button className="chip" type="button" onClick={() => removeTier(i)} style={{ color: 'var(--danger)' }}>×</button>
                 </div>
               ))}
