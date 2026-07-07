@@ -311,6 +311,8 @@ export default function Dashboard({ products, variants, stats, categories, isSup
                   const b = stockBadge(p.stock_quantity, p.safety_stock);
                   const opts = variantsByProduct[p.product_id] || [];
                   const hasOpts = opts.length > 1;
+                  const hasTiers = opts.some((v) => (v.tiers || []).length > 0);
+                  const canExpand = hasOpts || hasTiers;
                   const isOpen = expanded.has(p.product_id);
                   const colSpan = isSuper ? 7 : 6;
                   return (
@@ -332,7 +334,7 @@ export default function Dashboard({ products, variants, stats, categories, isSup
                         )}
                         <td>
                           <div className="prod">
-                            {hasOpts ? (
+                            {canExpand ? (
                               <button
                                 type="button"
                                 onClick={(e) => { e.stopPropagation(); toggleExpand(p.product_id); }}
@@ -351,6 +353,7 @@ export default function Dashboard({ products, variants, stats, categories, isSup
                               <div className="name">
                                 {p.name}
                                 {hasOpts && <span className="badge cat" style={{ marginLeft: 8 }}>옵션 {opts.length}</span>}
+                                {!hasOpts && hasTiers && <span className="badge cat" style={{ marginLeft: 8 }}>세트가</span>}
                               </div>
                               <div className="sku mono">{p.sku}</div>
                             </div>
@@ -370,27 +373,52 @@ export default function Dashboard({ products, variants, stats, categories, isSup
 
                       {isOpen && opts.map((v) => {
                         const vb = stockBadge(v.stock_quantity, v.safety_stock);
+                        const tiers = v.tiers || [];
                         return (
-                          <tr
-                            key={v.variant_id}
-                            className="clickable"
-                            onClick={() => router.push(`/product/${p.product_id}`)}
-                            style={{ background: '#fbfaf7' }}
-                          >
-                            <td colSpan={colSpan} style={{ paddingLeft: isSuper ? 96 : 60 }}>
-                              <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-                                <span style={{ color: 'var(--faint)' }}>↳</span>
-                                <b>{v.option_name}</b>
-                                {v.is_default && <span className="badge cat">기본</span>}
-                                {v.sku && <span className="mono faint" style={{ fontSize: 12 }}>{v.sku}</span>}
-                                <span className="num muted" style={{ fontSize: 13 }}>{usd(v.price)}</span>
-                                <span className="stock-cell" style={{ marginLeft: 'auto' }}>
-                                  <span className="stock-num num">{v.stock_quantity}</span>
-                                  <span className={`badge ${vb.cls}`}>{vb.label}</span>
-                                </span>
-                              </div>
-                            </td>
-                          </tr>
+                          <Fragment key={v.variant_id}>
+                            <tr
+                              className="clickable"
+                              onClick={() => router.push(`/product/${p.product_id}`)}
+                              style={{ background: '#fbfaf7' }}
+                            >
+                              <td colSpan={colSpan} style={{ paddingLeft: isSuper ? 96 : 60 }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                                  <span style={{ color: 'var(--faint)' }}>↳</span>
+                                  <b>{v.option_name}</b>
+                                  {v.is_default && <span className="badge cat">기본</span>}
+                                  {v.sku && <span className="mono faint" style={{ fontSize: 12 }}>{v.sku}</span>}
+                                  <span className="num muted" style={{ fontSize: 13 }}>{usd(v.price)}</span>
+                                  <span className="stock-cell" style={{ marginLeft: 'auto' }}>
+                                    <span className="stock-num num">{v.stock_quantity}</span>
+                                    <span className={`badge ${vb.cls}`}>{vb.label}</span>
+                                  </span>
+                                </div>
+                              </td>
+                            </tr>
+
+                            {tiers.length > 0 && (
+                              <tr
+                                className="clickable"
+                                onClick={() => router.push(`/product/${p.product_id}`)}
+                                style={{ background: '#fbfaf7' }}
+                              >
+                                <td colSpan={colSpan} style={{ paddingLeft: isSuper ? 116 : 80, paddingTop: 0 }}>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                                    <span className="faint" style={{ fontSize: 12 }}>세트가</span>
+                                    {tiers.map((t) => (
+                                      <span
+                                        key={t.pack_qty}
+                                        className="badge"
+                                        style={{ background: 'var(--panel)', border: '1px solid var(--line)', color: 'var(--muted)', fontWeight: 600 }}
+                                      >
+                                        {t.pack_qty}개 · {usd(t.price)}
+                                      </span>
+                                    ))}
+                                  </div>
+                                </td>
+                              </tr>
+                            )}
+                          </Fragment>
                         );
                       })}
                     </Fragment>
