@@ -55,7 +55,8 @@ export default function TransactionForm({ productId, userId, otherProducts, vari
     ? variants.find((v) => v.id === variantId)
     : (variants.length === 1 ? variants[0] : null);
   const tiers = (selectedVariant && selectedVariant.tiers) || [];
-  const showSets = type.reason === 'SALE' && tiers.length > 0;
+  // 세트: 입고(구매)를 제외한 판매·샘플·반품·교환에서 사용
+  const showSets = tiers.length > 0 && type.key !== '입고';
 
   function pickSet(t) {
     setTierKey(String(t.pack_qty));
@@ -95,7 +96,7 @@ export default function TransactionForm({ productId, userId, otherProducts, vari
       const group = crypto.randomUUID();
       payload = [
         // 현재 상품 OUT → 선택한 옵션 명시
-        { product_id: productId, variant_id: vId, direction: 'OUT', reason: 'EXCHANGE_OUT', quantity: n, exchange_group_id: group, note: note || null, created_by: userId, created_at: createdAt },
+        { product_id: productId, variant_id: vId, direction: 'OUT', reason: 'EXCHANGE_OUT', quantity: n, exchange_group_id: group, note: finalNote, created_by: userId, created_at: createdAt },
         // 대체 상품 IN → 해당 상품의 기본 옵션으로 트리거가 채움
         { product_id: swapId,    variant_id: null, direction: 'IN',  reason: 'EXCHANGE_IN',  quantity: sn, exchange_group_id: group, note: note || null, created_by: userId, created_at: createdAt },
       ];
@@ -180,7 +181,7 @@ export default function TransactionForm({ productId, userId, otherProducts, vari
               <button
                 key={t.pack_qty}
                 type="button"
-                className={tierKey === String(t.pack_qty) ? 'on dir-out' : ''}
+                className={tierKey === String(t.pack_qty) ? 'on dir-' + type.dir : ''}
                 onClick={() => pickSet(t)}
               >
                 <span>{t.pack_qty}개</span>
@@ -196,7 +197,11 @@ export default function TransactionForm({ productId, userId, otherProducts, vari
               <span className="sign">입력</span>
             </button>
           </div>
-          <div className="hint">세트를 고른 만큼 재고가 빠집니다. 예: 3개 세트 → 재고 −3.</div>
+          <div className="hint">
+            {type.dir === 'in'
+              ? '세트를 고른 만큼 재고가 늘어납니다. 예: 3개 세트 → 재고 +3.'
+              : '세트를 고른 만큼 재고가 빠집니다. 예: 3개 세트 → 재고 −3.'}
+          </div>
         </div>
       )}
 
