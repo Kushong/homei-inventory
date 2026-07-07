@@ -139,7 +139,7 @@ export default async function ProductDetail({ params }) {
         </div>
       </div>
 
-      <VariantManager productId={id} canEdit={isSuper} initialVariants={variantData} />
+      <VariantManager productId={id} canEdit={isSuper} userId={user.id} initialVariants={variantData} />
 
       <div className="grid-2">
         {/* 거래 등록 */}
@@ -177,11 +177,12 @@ export default async function ProductDetail({ params }) {
                 <tbody>
                   {txs.map((t) => {
                     const L = LABELS[t.reason] || { text: t.reason, dir: 'in' };
-                    const isIn = L.dir === 'in';
+                    const dir = t.direction === 'OUT' ? 'out' : 'in';
+                    const isIn = dir === 'in';
                     return (
                       <tr key={t.id}>
                         <td className="num muted" style={{ whiteSpace: 'nowrap' }}>{fmtDate(t.created_at)}</td>
-                        <td><span className={`type-tag ${L.dir}`}>{L.text}</span></td>
+                        <td><span className={`type-tag ${dir}`}>{L.text}</span></td>
                         <td className={`r num ${isIn ? 'qty-in' : 'qty-out'}`}>{isIn ? '+' : '−'}{t.quantity}</td>
                         <td>{nameMap[t.created_by] || <span className="faint">—</span>}</td>
                         <td className="muted">{t.note || <span className="faint">—</span>}</td>
