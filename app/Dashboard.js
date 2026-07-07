@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { Fragment, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import ImageUploader from './components/ImageUploader';
@@ -26,7 +26,7 @@ function genSku(products) {
   return 'HI-' + String(next).padStart(3, '0');
 }
 
-export default function Dashboard({ products, stats, categories, isSuper, userId }) {
+export default function Dashboard({ products, variants, stats, categories, isSuper, userId }) {
   const router = useRouter();
   const supabase = createClient();
 
@@ -37,6 +37,26 @@ export default function Dashboard({ products, stats, categories, isSuper, userId
   // 선택 삭제
   const [selected, setSelected] = useState(() => new Set());
   const [deleting, setDeleting] = useState(false);
+
+  // 옵션(variant)별 재고: product_id -> [variant...]
+  const variantsByProduct = useMemo(() => {
+    const m = {};
+    for (const v of variants || []) {
+      if (!m[v.product_id]) m[v.product_id] = [];
+      m[v.product_id].push(v);
+    }
+    return m;
+  }, [variants]);
+
+  // 행 펼치기 상태
+  const [expanded, setExpanded] = useState(() => new Set());
+  function toggleExpand(id) {
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  }
 
   // 상품 등록 모달
   const [showAdd, setShowAdd] = useState(false);
@@ -289,45 +309,91 @@ export default function Dashboard({ products, stats, categories, isSuper, userId
               <tbody>
                 {rows.map((p) => {
                   const b = stockBadge(p.stock_quantity, p.safety_stock);
+                  const opts = variantsByProduct[p.product_id] || [];
+                  const hasOpts = opts.length > 1;
+                  const isOpen = expanded.has(p.product_id);
+                  const colSpan = isSuper ? 7 : 6;
                   return (
-                    <tr
-                      key={p.product_id}
-                      className="clickable"
-                      onClick={() => router.push(`/product/${p.product_id}`)}
-                    >
-                      {isSuper && (
-                        <td className="check-col" onClick={(e) => e.stopPropagation()}>
-                          <input
-                            className="row-check"
-                            type="checkbox"
-                            checked={selected.has(p.product_id)}
-                            onChange={() => toggleOne(p.product_id)}
-                            aria-label="선택"
-                          />
-                        </td>
-                      )}
-                      <td>
-                        <div className="prod">
-                          {p.image_url
-                            ? <img className="thumb" src={p.image_url} alt="" />
-                            : <div className="thumb ph">IMG</div>}
-                          <div className="meta">
-                            <div className="name">{p.name}</div>
-                            <div className="sku mono">{p.sku}</div>
+                    <Fragment key={p.product_id}>
+                      <tr
+                        className="clickable"
+                        onClick={() => router.push(`/product/${p.product_id}`)}
+                      >
+                        {isSuper && (
+                          <td className="check-col" onClick={(e) => e.stopPropagation()}>
+                            <input
+                              className="row-check"
+                              type="checkbox"
+                              checked={selected.has(p.product_id)}
+                              onChange={() => toggleOne(p.product_id)}
+                              aria-label="선택"
+                            />
+                          </td>
+                        )}
+                        <td>
+                          <div className="prod">
+                            {hasOpts ? (
+                              <button
+                                type="button"
+                                onClick={(e) => { e.stopPropagation(); toggleExpand(p.product_id); }}
+                                aria-label="옵션 펼치기"
+                                style={{ width: 22, height: 22, flexShrink: 0, border: '1px solid var(--line)', borderRadius: 6, background: 'var(--panel)', cursor: 'pointer', color: 'var(--muted)', fontSize: 11 }}
+                              >
+                                {isOpen ? '▾' : '▸'}
+                              </button>
+                            ) : (
+                              <span style={{ width: 22, flexShrink: 0, display: 'inline-block' }} />
+                            )}
+                            {p.image_url
+                              ? <img className="thumb" src={p.image_url} alt="" />
+                              : <div className="thumb ph">IMG</div>}
+                            <div className="meta">
+                              <div className="name">
+                                {p.name}
+                                {hasOpts && <span className="badge cat" style={{ marginLeft: 8 }}>옵션 {opts.length}</span>}
+                              </div>
+                              <div className="sku mono">{p.sku}</div>
+                            </div>
                           </div>
-                        </div>
-                      </td>
-                      <td>{p.category_name ? <span className="badge cat">{p.category_name}</span> : <span className="faint">—</span>}</td>
-                      <td className="r num">{usd(p.price)}</td>
-                      <td className="r">
-                        <div className="stock-cell">
-                          <span className="stock-num num">{p.stock_quantity}</span>
-                          <span className={`badge ${b.cls}`}>{b.label}</span>
-                        </div>
-                      </td>
-                      <td className="r num muted">{p.sales_qty}</td>
-                      <td className="r num muted">{p.sample_qty}</td>
-                    </tr>
+                        </td>
+                        <td>{p.category_name ? <span className="badge cat">{p.category_name}</span> : <span className="faint">—</span>}</td>
+                        <td className="r num">{usd(p.price)}</td>
+                        <td className="r">
+                          <div className="stock-cell">
+                            <span className="stock-num num">{p.stock_quantity}</span>
+                            <span className={`badge ${b.cls}`}>{b.label}</span>
+                          </div>
+                        </td>
+                        <td className="r num muted">{p.sales_qty}</td>
+                        <td className="r num muted">{p.sample_qty}</td>
+                      </tr>
+
+                      {isOpen && opts.map((v) => {
+                        const vb = stockBadge(v.stock_quantity, v.safety_stock);
+                        return (
+                          <tr
+                            key={v.variant_id}
+                            className="clickable"
+                            onClick={() => router.push(`/product/${p.product_id}`)}
+                            style={{ background: '#fbfaf7' }}
+                          >
+                            <td colSpan={colSpan} style={{ paddingLeft: isSuper ? 96 : 60 }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                                <span style={{ color: 'var(--faint)' }}>↳</span>
+                                <b>{v.option_name}</b>
+                                {v.is_default && <span className="badge cat">기본</span>}
+                                {v.sku && <span className="mono faint" style={{ fontSize: 12 }}>{v.sku}</span>}
+                                <span className="num muted" style={{ fontSize: 13 }}>{usd(v.price)}</span>
+                                <span className="stock-cell" style={{ marginLeft: 'auto' }}>
+                                  <span className="stock-num num">{v.stock_quantity}</span>
+                                  <span className={`badge ${vb.cls}`}>{vb.label}</span>
+                                </span>
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </Fragment>
                   );
                 })}
               </tbody>
