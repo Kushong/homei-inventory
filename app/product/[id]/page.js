@@ -3,6 +3,7 @@ import { redirect, notFound } from 'next/navigation';
 import { createClient } from '@/lib/supabase/server';
 import TransactionForm from './TransactionForm';
 import ProductThumb from '@/app/components/ProductThumb';
+import VariantManager from './VariantManager';
 
 export const dynamic = 'force-dynamic';
 
@@ -46,6 +47,40 @@ export default async function ProductDetail({ params }) {
     .maybeSingle();
 
   if (!product) notFound();
+
+  // 옵션(variant) + 세트가격 + 옵션별 재고
+  const { data: variants } = await supabase
+    .from('product_variants')
+    .select('*')
+    .eq('product_id', id)
+    .order('sort_order', { ascending: true })
+    .order('created_at', { ascending: true });
+
+  const variantIds = (variants || []).map((v) => v.id);
+  const tiersByVariant = {};
+  const stockByVariant = {};
+  if (variantIds.length) {
+    const { data: tiers } = await supabase
+      .from('variant_price_tiers')
+      .select('*')
+      .in('variant_id', variantIds)
+      .order('pack_qty', { ascending: true });
+    for (const t of tiers || []) {
+      if (!tiersByVariant[t.variant_id]) tiersByVariant[t.variant_id] = [];
+      tiersByVariant[t.variant_id].push(t);
+    }
+    const { data: vstock } = await supabase
+      .from('variant_stock')
+      .select('variant_id, stock_quantity')
+      .in('variant_id', variantIds);
+    for (const s of vstock || []) stockByVariant[s.variant_id] = s.stock_quantity;
+  }
+
+  const variantData = (variants || []).map((v) => ({
+    ...v,
+    tiers: tiersByVariant[v.id] || [],
+    stock_quantity: stockByVariant[v.id] || 0,
+  }));
 
   // 거래 이력
   const { data: txs } = await supabase
@@ -103,6 +138,8 @@ export default async function ProductDetail({ params }) {
           </div>
         </div>
       </div>
+
+      <VariantManager productId={id} canEdit={isSuper} initialVariants={variantData} />
 
       <div className="grid-2">
         {/* 거래 등록 */}
