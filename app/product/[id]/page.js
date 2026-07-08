@@ -150,7 +150,7 @@ export default async function ProductDetail({ params }) {
 
       <VariantManager productId={id} canEdit={isSuper} userId={userId} initialVariants={variantData} />
 
-      {isLoggedIn ? (
+      {isLoggedIn && (
         <div className="grid-2">
           {/* 거래 등록 */}
           <div className="card">
@@ -206,20 +206,7 @@ export default async function ProductDetail({ params }) {
             </div>
           </div>
         </div>
-      ) : (
-        <div className="card">
-          <div className="card-body" style={{ textAlign: 'center', padding: '32px 20px' }}>
-            <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 6 }}>
-              거래 등록과 이력은 관리자 로그인 후 이용할 수 있습니다
-            </div>
-            <div className="faint" style={{ fontSize: 13.5, marginBottom: 18 }}>
-              재고·옵션·세트가격은 로그인 없이 확인할 수 있습니다.
-            </div>
-            <Link href={`/login?next=/product/${id}`} className="btn" style={{ display: 'inline-block' }}>
-              관리자 로그인
-            </Link>
-          </div>
-        </div>
+     
       )}
     </main>
   );
