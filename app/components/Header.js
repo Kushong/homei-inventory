@@ -31,12 +31,14 @@ export default function Header() {
 
     supabase.auth.getUser().then(({ data }) => load(data.user));
 
-    const { data: sub } = supabase.auth.onAuthStateChange((_e, session) => {
-      // ★ 콜백 안에서 곧바로 supabase 호출 시 auth 락 경합 → setTimeout으로 밖에서 실행
-      setTimeout(() => {
-        load(session?.user);
-        router.refresh();
-      }, 0);
+    const { data: sub } = supabase.auth.onAuthStateChange((event, session) => {
+      // 토큰 자동 갱신(TOKEN_REFRESHED)·초기 세션(INITIAL_SESSION) 등에서도
+      // 이벤트가 오는데, 그때마다 router.refresh()를 부르면 iOS 사파리에서
+      // 리렌더가 폭주해 화면이 "버버버벅" 깜빡이고, 로그인 직후의 페이지 이동이 묻힌다.
+      // → 실제 로그인/로그아웃 전환에서만 헤더 표시를 갱신한다. (refresh 호출 안 함)
+      if (event === 'SIGNED_IN' || event === 'SIGNED_OUT' || event === 'USER_UPDATED') {
+        setTimeout(() => { load(session?.user); }, 0);
+      }
     });
 
     return () => { active = false; sub.subscription.unsubscribe(); };
