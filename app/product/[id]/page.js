@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { redirect, notFound } from 'next/navigation';
+import { notFound } from 'next/navigation';
 import { createClient } from '@/lib/supabase/server';
 import TransactionForm from './TransactionForm';
 import ProductThumb from '@/app/components/ProductThumb';
@@ -28,18 +28,23 @@ export default async function ProductDetail({ params }) {
   const { id } = await params;
   const supabase = await createClient();
 
+  // 비로그인도 상세를 볼 수 있게 함(읽기전용). 거래 등록/이력만 로그인 필요.
   const { data: { user } } = await supabase.auth.getUser();
-  if (!user) redirect(`/login?next=/product/${id}`);
+  const isLoggedIn = !!user;
+  const userId = user?.id ?? null;
 
-  // 최고관리자(super)만 대표 이미지 변경 가능
-  const { data: prof } = await supabase
-    .from('admin_profiles')
-    .select('role')
-    .eq('id', user.id)
-    .maybeSingle();
-  const isSuper = prof?.role === 'super';
+  // 최고관리자(super)만 대표 이미지/옵션 편집 가능
+  let isSuper = false;
+  if (user) {
+    const { data: prof } = await supabase
+      .from('admin_profiles')
+      .select('role')
+      .eq('id', user.id)
+      .maybeSingle();
+    isSuper = prof?.role === 'super';
+  }
 
-  // 상품 개요 (재고/판매/샘플 포함)
+  // 상품 개요 (재고/판매/샘플 포함) — 공개(anon) 조회 가능
   const { data: product } = await supabase
     .from('product_overview')
     .select('*')
@@ -48,7 +53,7 @@ export default async function ProductDetail({ params }) {
 
   if (!product) notFound();
 
-  // 옵션(variant) + 세트가격 + 옵션별 재고
+  // 옵션(variant) + 세트가격 + 옵션별 재고 — 공개 조회 가능
   const { data: variants } = await supabase
     .from('product_variants')
     .select('*')
@@ -82,31 +87,35 @@ export default async function ProductDetail({ params }) {
     stock_quantity: stockByVariant[v.id] || 0,
   }));
 
-  // 거래 이력
-  const { data: txs } = await supabase
-    .from('inventory_transactions')
-    .select('*')
-    .eq('product_id', id)
-    .order('created_at', { ascending: false })
-    .limit(50);
-
-  // 담당자 이름 매핑
-  const ids = [...new Set((txs || []).map((t) => t.created_by).filter(Boolean))];
+  // 거래 이력 · 담당자 · 교환용 목록 — 로그인 상태에서만 조회
+  let txs = [];
   let nameMap = {};
-  if (ids.length) {
-    const { data: profiles } = await supabase
-      .from('admin_profiles')
-      .select('id, display_name')
-      .in('id', ids);
-    nameMap = Object.fromEntries((profiles || []).map((p) => [p.id, p.display_name]));
-  }
+  let others = [];
+  if (isLoggedIn) {
+    const { data: txData } = await supabase
+      .from('inventory_transactions')
+      .select('*')
+      .eq('product_id', id)
+      .order('created_at', { ascending: false })
+      .limit(50);
+    txs = txData || [];
 
-  // 교환용 다른 상품 목록
-  const { data: others } = await supabase
-    .from('product_overview')
-    .select('product_id, name, sku')
-    .neq('product_id', id)
-    .order('name');
+    const ids = [...new Set(txs.map((t) => t.created_by).filter(Boolean))];
+    if (ids.length) {
+      const { data: profiles } = await supabase
+        .from('admin_profiles')
+        .select('id, display_name')
+        .in('id', ids);
+      nameMap = Object.fromEntries((profiles || []).map((p) => [p.id, p.display_name]));
+    }
+
+    const { data: otherData } = await supabase
+      .from('product_overview')
+      .select('product_id, name, sku')
+      .neq('product_id', id)
+      .order('name');
+    others = otherData || [];
+  }
 
   const stockCls = product.stock_quantity <= 0 ? 'zero'
     : product.stock_quantity <= product.safety_stock ? 'warn' : 'ok';
@@ -139,63 +148,79 @@ export default async function ProductDetail({ params }) {
         </div>
       </div>
 
-      <VariantManager productId={id} canEdit={isSuper} userId={user.id} initialVariants={variantData} />
+      <VariantManager productId={id} canEdit={isSuper} userId={userId} initialVariants={variantData} />
 
-      <div className="grid-2">
-        {/* 거래 등록 */}
+      {isLoggedIn ? (
+        <div className="grid-2">
+          {/* 거래 등록 */}
+          <div className="card">
+            <div className="card-head">거래 등록 · New transaction</div>
+            <div className="card-body">
+              <TransactionForm
+                productId={id}
+                userId={userId}
+                otherProducts={others}
+                variants={variantData}
+              />
+            </div>
+          </div>
+
+          {/* 최근 이력 */}
+          <div className="card hist">
+            <div className="card-head">최근 거래 이력 · Recent history</div>
+            <div className="table-scroll">
+              {(txs.length === 0) ? (
+                <div className="empty">
+                  <div className="big">아직 거래 내역이 없습니다</div>
+                  <div className="sub">왼쪽에서 첫 입고를 기록해 보세요.</div>
+                </div>
+              ) : (
+                <table>
+                  <thead>
+                    <tr>
+                      <th>일시</th>
+                      <th>유형</th>
+                      <th className="r">수량</th>
+                      <th>담당자</th>
+                      <th>메모</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {txs.map((t) => {
+                      const L = LABELS[t.reason] || { text: t.reason, dir: 'in' };
+                      const dir = t.direction === 'OUT' ? 'out' : 'in';
+                      const isIn = dir === 'in';
+                      return (
+                        <tr key={t.id}>
+                          <td className="num muted" style={{ whiteSpace: 'nowrap' }}>{fmtDate(t.created_at)}</td>
+                          <td><span className={`type-tag ${dir}`}>{L.text}</span></td>
+                          <td className={`r num ${isIn ? 'qty-in' : 'qty-out'}`}>{isIn ? '+' : '−'}{t.quantity}</td>
+                          <td>{nameMap[t.created_by] || <span className="faint">—</span>}</td>
+                          <td className="muted">{t.note || <span className="faint">—</span>}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          </div>
+        </div>
+      ) : (
         <div className="card">
-          <div className="card-head">거래 등록 · New transaction</div>
-          <div className="card-body">
-            <TransactionForm
-              productId={id}
-              userId={user.id}
-              otherProducts={others || []}
-              variants={variantData}
-            />
+          <div className="card-body" style={{ textAlign: 'center', padding: '32px 20px' }}>
+            <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 6 }}>
+              거래 등록과 이력은 관리자 로그인 후 이용할 수 있습니다
+            </div>
+            <div className="faint" style={{ fontSize: 13.5, marginBottom: 18 }}>
+              재고·옵션·세트가격은 로그인 없이 확인할 수 있습니다.
+            </div>
+            <Link href={`/login?next=/product/${id}`} className="btn" style={{ display: 'inline-block' }}>
+              관리자 로그인
+            </Link>
           </div>
         </div>
-
-        {/* 최근 이력 */}
-        <div className="card hist">
-          <div className="card-head">최근 거래 이력 · Recent history</div>
-          <div className="table-scroll">
-            {(!txs || txs.length === 0) ? (
-              <div className="empty">
-                <div className="big">아직 거래 내역이 없습니다</div>
-                <div className="sub">왼쪽에서 첫 입고를 기록해 보세요.</div>
-              </div>
-            ) : (
-              <table>
-                <thead>
-                  <tr>
-                    <th>일시</th>
-                    <th>유형</th>
-                    <th className="r">수량</th>
-                    <th>담당자</th>
-                    <th>메모</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {txs.map((t) => {
-                    const L = LABELS[t.reason] || { text: t.reason, dir: 'in' };
-                    const dir = t.direction === 'OUT' ? 'out' : 'in';
-                    const isIn = dir === 'in';
-                    return (
-                      <tr key={t.id}>
-                        <td className="num muted" style={{ whiteSpace: 'nowrap' }}>{fmtDate(t.created_at)}</td>
-                        <td><span className={`type-tag ${dir}`}>{L.text}</span></td>
-                        <td className={`r num ${isIn ? 'qty-in' : 'qty-out'}`}>{isIn ? '+' : '−'}{t.quantity}</td>
-                        <td>{nameMap[t.created_by] || <span className="faint">—</span>}</td>
-                        <td className="muted">{t.note || <span className="faint">—</span>}</td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            )}
-          </div>
-        </div>
-      </div>
+      )}
     </main>
   );
 }
