@@ -44,4 +44,40 @@ export default function Header() {
   }, []);
 
   async function signOut() {
-    await
+    await supabase.auth.signOut();
+    router.push('/');
+    router.refresh();
+  }
+
+  return (
+    <header className="header">
+      <div className="header-inner">
+        <Link href="/" className="brand">
+          <span>HOME<span className="plus-i">+I</span></span>
+          <span className="kor">재고 관리</span>
+        </Link>
+        <div className="header-auth">
+          {!ready ? null : name ? (
+            <>
+              {isSuper && (
+                
+                  className="chip"
+                  href="/private"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  title="최고관리자 전용 페이지"
+                >
+                  🔒 Private Sites
+                </a>
+              )}
+              <span className="chip"><span className="dot" />{name}</span>
+              <button className="chip" onClick={signOut}>로그아웃</button>
+            </>
+          ) : (
+            <Link href="/login" className="chip brand">관리자 로그인</Link>
+          )}
+        </div>
+      </div>
+    </header>
+  );
+}
