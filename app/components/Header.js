@@ -49,6 +49,10 @@ export default function Header() {
     router.refresh();
   }
 
+  function openPrivate() {
+    window.open('/private', '_blank', 'noopener,noreferrer');
+  }
+
   return (
     <header className="header">
       <div className="header-inner">
@@ -60,15 +64,14 @@ export default function Header() {
           {!ready ? null : name ? (
             <>
               {isSuper && (
-                
+                <button
+                  type="button"
                   className="chip"
-                  href="/private"
-                  target="_blank"
-                  rel="noopener noreferrer"
+                  onClick={openPrivate}
                   title="최고관리자 전용 페이지"
                 >
                   🔒 Private Sites
-                </a>
+                </button>
               )}
               <span className="chip"><span className="dot" />{name}</span>
               <button className="chip" onClick={signOut}>로그아웃</button>
