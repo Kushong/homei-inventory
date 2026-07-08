@@ -142,5 +142,11 @@ create policy "authenticated read admin profiles"
   to authenticated
   using (true);
 
+-- [SECURITY NOTE] SECURITY DEFINER 의도적 유지.
+-- inventory_transactions 집계(재고 숫자)만 노출, 원본 이력은 anon 비공개.
+-- invoker로 바꾸면 anon이 inventory_transactions RLS에 막혀 공개 재고가 0이 됨.
+-- Supabase 린터 security_definer_view ERROR는 의도된 예외로 무시함.
+create view public.current_stock as ...
+
 -- 참고: current_stock / low_stock_alert 뷰는 기반 테이블(products)의
 -- RLS를 상속하므로 anon도 조회 가능합니다.
