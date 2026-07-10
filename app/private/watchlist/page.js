@@ -44,6 +44,22 @@ function formatPrice(s) {
   if (!d) return s || ''; // 숫자가 없으면 원본 그대로 (레거시 안전장치)
   return commafy(d) + '$';
 }
+function matchesQuery(it, q) {
+  const hay = [
+    it.name,
+    it.category,
+    it.fuel_type,
+    it.url,
+    it.memo,
+    it.year != null ? String(it.year) : '',
+    it.price || '',
+    it.price ? formatPrice(it.price) : '',
+  ]
+    .filter(Boolean)
+    .join(' ')
+    .toLowerCase();
+  return hay.includes(q);
+}
 
 export default function WatchlistPage() {
   const supabase = createClient();
@@ -55,6 +71,7 @@ export default function WatchlistPage() {
   const [error, setError] = useState('');
 
   const [activeCat, setActiveCat] = useState('전체');
+  const [query, setQuery] = useState('');
 
   const [editing, setEditing] = useState(null); // null | 'new' | 항목객체
   const [form, setForm] = useState(emptyForm);
@@ -111,10 +128,12 @@ export default function WatchlistPage() {
     return Array.from(set);
   })();
 
-  const shown =
+  const q = query.trim().toLowerCase();
+  const byCat =
     activeCat === '전체' ? items : items.filter((it) => it.category === activeCat);
+  const shown = q ? byCat.filter((it) => matchesQuery(it, q)) : byCat;
 
-  const canDrag = activeCat === '전체';
+  const canDrag = activeCat === '전체' && !q;
 
   function isVehicle(cat) {
     return VEHICLE_CATEGORIES.includes(cat);
@@ -325,7 +344,7 @@ export default function WatchlistPage() {
         </div>
       ) : null}
 
-      {/* 필터 탭 + 추가 버튼 */}
+      {/* 필터 탭 + 검색 + 추가 버튼 */}
       <div
         style={{
           display: 'flex',
@@ -358,6 +377,52 @@ export default function WatchlistPage() {
               </button>
             );
           })}
+        </div>
+        <div
+          style={{
+            position: 'relative',
+            display: 'flex',
+            alignItems: 'center',
+            flexShrink: 0,
+          }}
+        >
+          <input
+            type="text"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="검색"
+            style={{
+              width: 160,
+              boxSizing: 'border-box',
+              padding: '7px 28px 7px 12px',
+              borderRadius: 20,
+              border: '1px solid ' + COL.border,
+              fontSize: 13,
+              outline: 'none',
+              color: COL.ink2,
+              background: '#fff',
+            }}
+          />
+          {query ? (
+            <button
+              type="button"
+              title="지우기"
+              onClick={() => setQuery('')}
+              style={{
+                position: 'absolute',
+                right: 8,
+                border: 'none',
+                background: 'transparent',
+                color: COL.faint,
+                fontSize: 13,
+                lineHeight: 1,
+                cursor: 'pointer',
+                padding: 0,
+              }}
+            >
+              ✕
+            </button>
+          ) : null}
         </div>
         <button
           type="button"
@@ -576,7 +641,9 @@ export default function WatchlistPage() {
             maxWidth: 760,
           }}
         >
-          {activeCat === '전체'
+          {q
+            ? '검색 결과가 없어요.'
+            : activeCat === '전체'
             ? '아직 등록된 물품이 없어요. "+ 새 항목"으로 추가하세요.'
             : '이 카테고리에 항목이 없어요.'}
         </div>
