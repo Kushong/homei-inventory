@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useRef, useState, useCallback } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import ImageUploader from '@/app/components/ImageUploader';
 
@@ -15,15 +15,9 @@ const COL = {
   danger: '#dc2626',
 };
 
-// 프리셋 카테고리 (여기에 저장된 값들과 합쳐 필터 탭을 만듦)
 const PRESET_CATEGORIES = ['전자제품', '자동차'];
-
-// 연식·연료 칸을 보여줄 카테고리
 const VEHICLE_CATEGORIES = ['자동차'];
-
-// 연료 선택지
 const FUEL_OPTIONS = ['가솔린', '디젤', '하이브리드', 'EV'];
-
 const CUSTOM = '__custom__';
 
 const emptyForm = {
@@ -37,6 +31,20 @@ const emptyForm = {
   image_url: '',
 };
 
+// 가격: 숫자만 추출 / "30,000$" 형태로 표시
+function priceDigits(s) {
+  return (s || '').replace(/[^\d]/g, '');
+}
+function commafy(digits) {
+  if (!digits) return '';
+  return Number(digits).toLocaleString('en-US');
+}
+function formatPrice(s) {
+  const d = priceDigits(s);
+  if (!d) return s || ''; // 숫자가 없으면 원본 그대로 (레거시 안전장치)
+  return commafy(d) + '$';
+}
+
 export default function WatchlistPage() {
   const supabase = createClient();
 
@@ -48,10 +56,18 @@ export default function WatchlistPage() {
 
   const [activeCat, setActiveCat] = useState('전체');
 
-  // editing: null | 'new' | 항목객체
-  const [editing, setEditing] = useState(null);
+  const [editing, setEditing] = useState(null); // null | 'new' | 항목객체
   const [form, setForm] = useState(emptyForm);
   const [customCat, setCustomCat] = useState('');
+
+  // 드래그 정렬용
+  const itemsRef = useRef([]);
+  const dragIndex = useRef(null);
+  const [overIndex, setOverIndex] = useState(null);
+
+  useEffect(() => {
+    itemsRef.current = items;
+  }, [items]);
 
   const loadItems = useCallback(
     async (uid) => {
@@ -87,7 +103,6 @@ export default function WatchlistPage() {
     })();
   }, [supabase, loadItems]);
 
-  // 필터 탭용 카테고리 목록: 프리셋 ∪ 데이터에 있는 값
   const categories = (() => {
     const set = new Set(PRESET_CATEGORIES);
     items.forEach((it) => {
@@ -98,6 +113,8 @@ export default function WatchlistPage() {
 
   const shown =
     activeCat === '전체' ? items : items.filter((it) => it.category === activeCat);
+
+  const canDrag = activeCat === '전체';
 
   function isVehicle(cat) {
     return VEHICLE_CATEGORIES.includes(cat);
@@ -116,7 +133,7 @@ export default function WatchlistPage() {
     setForm({
       name: item.name || '',
       category: item.category || '전자제품',
-      price: item.price || '',
+      price: priceDigits(item.price),
       year: item.year != null ? String(item.year) : '',
       fuel_type: item.fuel_type || '',
       url: item.url || '',
@@ -165,11 +182,12 @@ export default function WatchlistPage() {
     const vehicle = isVehicle(category);
     const yearVal = vehicle && form.year.trim() ? parseInt(form.year, 10) : null;
     const fuelVal = vehicle && form.fuel_type ? form.fuel_type : null;
+    const priceStr = priceDigits(form.price); // 숫자만 저장
 
     const payload = {
       category,
       name,
-      price: form.price.trim() || null,
+      price: priceStr || null,
       year: Number.isFinite(yearVal) ? yearVal : null,
       fuel_type: fuelVal,
       url: form.url.trim() || null,
@@ -225,6 +243,59 @@ export default function WatchlistPage() {
     }
   }
 
+  // ---- 드래그 순서 변경 (전체 탭, 데스크톱 마우스) ----
+  function onDragStart(e, index) {
+    dragIndex.current = index;
+    if (e.dataTransfer) {
+      e.dataTransfer.effectAllowed = 'move';
+      try {
+        e.dataTransfer.setData('text/plain', String(index));
+      } catch (_) {}
+    }
+  }
+
+  function onDragEnter(index) {
+    const from = dragIndex.current;
+    if (from === null || from === index) {
+      setOverIndex(index);
+      return;
+    }
+    setItems((arr) => {
+      const next = arr.slice();
+      const moved = next.splice(from, 1)[0];
+      next.splice(index, 0, moved);
+      return next;
+    });
+    dragIndex.current = index;
+    setOverIndex(index);
+  }
+
+  async function onDragEnd() {
+    dragIndex.current = null;
+    setOverIndex(null);
+    await persistOrder();
+  }
+
+  async function persistOrder() {
+    const cur = itemsRef.current;
+    const changed = [];
+    cur.forEach((t, i) => {
+      if (t.sort_order !== i) changed.push({ id: t.id, order: i });
+    });
+    if (!changed.length) return;
+    setItems((arr) => arr.map((t, i) => ({ ...t, sort_order: i })));
+    try {
+      await Promise.all(
+        changed.map((c) =>
+          supabase.from('private_watchlist').update({ sort_order: c.order }).eq('id', c.id)
+        )
+      );
+    } catch (err) {
+      setError(err.message || '순서 저장에 실패했어요.');
+      if (userId) loadItems(userId);
+    }
+  }
+
   const formVehicle = isVehicle(
     form.category === CUSTOM ? customCat.trim() : form.category
   );
@@ -235,7 +306,7 @@ export default function WatchlistPage() {
         워칭리스트
       </h1>
       <p style={{ margin: '0 0 20px', fontSize: 14, color: COL.sub }}>
-        관심 있는 물품을 모아두는 곳이에요. 사진은 붙여넣기·드래그·클릭으로 등록됩니다.
+        관심 있는 물품을 모아두는 곳이에요. 전체 탭에서 손잡이(⠿)를 잡고 끌어 순서를 바꿀 수 있어요.
       </p>
 
       {error ? (
@@ -369,13 +440,17 @@ export default function WatchlistPage() {
           </FieldRow>
 
           <FieldRow label="가격">
-            <input
-              type="text"
-              value={form.price}
-              onChange={(e) => setField('price', e.target.value)}
-              placeholder="예: $52,000"
-              style={inputStyle}
-            />
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 1, minWidth: 0 }}>
+              <input
+                type="text"
+                inputMode="numeric"
+                value={commafy(form.price)}
+                onChange={(e) => setField('price', priceDigits(e.target.value))}
+                placeholder="예: 30000"
+                style={{ ...inputStyle, flex: 1 }}
+              />
+              <span style={{ fontSize: 15, color: COL.sub, fontWeight: 600 }}>$</span>
+            </div>
           </FieldRow>
 
           {formVehicle ? (
@@ -485,7 +560,7 @@ export default function WatchlistPage() {
         </div>
       ) : null}
 
-      {/* 카드 그리드 */}
+      {/* 리스트 */}
       {loading ? (
         <div style={{ padding: 16, fontSize: 13, color: COL.faint }}>불러오는 중…</div>
       ) : shown.length === 0 ? (
@@ -498,7 +573,7 @@ export default function WatchlistPage() {
             fontSize: 14,
             color: COL.faint,
             textAlign: 'center',
-            maxWidth: 640,
+            maxWidth: 760,
           }}
         >
           {activeCat === '전체'
@@ -506,32 +581,48 @@ export default function WatchlistPage() {
             : '이 카테고리에 항목이 없어요.'}
         </div>
       ) : (
-        <div
-          style={{
-            display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))',
-            gap: 12,
-            maxWidth: 760,
-          }}
-        >
-          {shown.map((item) => (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxWidth: 760 }}>
+          {shown.map((item, index) => (
             <div
               key={item.id}
+              draggable={canDrag}
+              onDragStart={canDrag ? (e) => onDragStart(e, index) : undefined}
+              onDragEnter={canDrag ? () => onDragEnter(index) : undefined}
+              onDragOver={canDrag ? (e) => e.preventDefault() : undefined}
+              onDragEnd={canDrag ? onDragEnd : undefined}
               onClick={() => openEdit(item)}
               style={{
                 display: 'flex',
+                alignItems: 'center',
                 gap: 12,
-                padding: 12,
-                borderRadius: 12,
-                border: '1px solid ' + COL.border,
+                padding: '10px 12px',
+                borderRadius: 10,
+                border: '1px solid ' + (overIndex === index && canDrag ? COL.accent : COL.border),
                 background: '#fff',
                 cursor: 'pointer',
               }}
             >
+              {canDrag ? (
+                <span
+                  title="끌어서 순서 변경"
+                  onClick={(e) => e.stopPropagation()}
+                  style={{
+                    cursor: 'grab',
+                    color: COL.faint,
+                    fontSize: 16,
+                    lineHeight: 1,
+                    userSelect: 'none',
+                    flexShrink: 0,
+                  }}
+                >
+                  ⠿
+                </span>
+              ) : null}
+
               <div
                 style={{
-                  width: 88,
-                  height: 88,
+                  width: 48,
+                  height: 48,
                   flexShrink: 0,
                   borderRadius: 8,
                   overflow: 'hidden',
@@ -549,35 +640,42 @@ export default function WatchlistPage() {
                     style={{ width: '100%', height: '100%', objectFit: 'cover' }}
                   />
                 ) : (
-                  <span style={{ fontSize: 11, color: COL.faint }}>사진 없음</span>
+                  <span style={{ fontSize: 9, color: COL.faint }}>없음</span>
                 )}
               </div>
+
               <div style={{ minWidth: 0, flex: 1 }}>
                 <div
                   style={{
                     fontSize: 14,
                     fontWeight: 700,
                     color: COL.ink2,
-                    marginBottom: 4,
                     wordBreak: 'break-word',
                   }}
                 >
                   {item.name}
                 </div>
-                {isVehicle(item.category) && (item.year || item.fuel_type) ? (
-                  <div style={{ fontSize: 12, color: COL.sub, marginBottom: 3 }}>
-                    {[item.year ? item.year + '년식' : null, item.fuel_type]
-                      .filter(Boolean)
-                      .join(' · ')}
-                  </div>
-                ) : (
-                  <div style={{ fontSize: 12, color: COL.faint, marginBottom: 3 }}>
-                    {item.category}
-                  </div>
-                )}
+                <div style={{ fontSize: 12, color: COL.faint, marginTop: 2 }}>
+                  {isVehicle(item.category) && (item.year || item.fuel_type)
+                    ? [item.year ? item.year + '년식' : null, item.fuel_type]
+                        .filter(Boolean)
+                        .join(' · ')
+                    : item.category}
+                </div>
+              </div>
+
+              <div
+                style={{
+                  flexShrink: 0,
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'flex-end',
+                  gap: 2,
+                }}
+              >
                 {item.price ? (
-                  <div style={{ fontSize: 13, color: COL.ink, marginBottom: 3 }}>
-                    {item.price}
+                  <div style={{ fontSize: 14, fontWeight: 700, color: COL.ink }}>
+                    {formatPrice(item.price)}
                   </div>
                 ) : null}
                 {item.url ? (
@@ -588,7 +686,6 @@ export default function WatchlistPage() {
                       window.open(item.url, '_blank', 'noopener,noreferrer');
                     }}
                     style={{
-                      marginTop: 2,
                       padding: 0,
                       border: 'none',
                       background: 'transparent',
@@ -597,10 +694,31 @@ export default function WatchlistPage() {
                       cursor: 'pointer',
                     }}
                   >
-                    사이트 열기 ↗
+                    사이트 ↗
                   </button>
                 ) : null}
               </div>
+
+              <button
+                type="button"
+                title="삭제"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  remove(item);
+                }}
+                style={{
+                  flexShrink: 0,
+                  border: 'none',
+                  background: 'transparent',
+                  color: COL.faint,
+                  fontSize: 15,
+                  lineHeight: 1,
+                  cursor: 'pointer',
+                  padding: '4px 6px',
+                }}
+              >
+                ✕
+              </button>
             </div>
           ))}
         </div>
