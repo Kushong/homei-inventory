@@ -16,7 +16,7 @@ const NAV = [
   { href: '/private/todo', label: '할 일', icon: '✅', ready: true },
   { href: '/private/favorites', label: '즐겨찾기', icon: '⭐', ready: true },
   { href: '/private/watchlist', label: '워칭리스트', icon: '🎯', ready: true },
-  { href: '/private/records', label: '개인 기록', icon: '📦', ready: false },
+  { href: '/private/orders', label: '개인주문', icon: '📦', ready: true },
   { href: '/private/lab', label: '실험실', icon: '🧪', ready: false },
 ];
 
