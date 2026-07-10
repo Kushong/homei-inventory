@@ -15,6 +15,13 @@ const COL = {
   ok: '#16a34a',
 };
 
+function todayStr() {
+  const d = new Date();
+  const off = d.getTimezoneOffset();
+  const local = new Date(d.getTime() - off * 60000);
+  return local.toISOString().slice(0, 10);
+}
+
 const EMPTY = {
   productName: '',
   price: '',
@@ -24,6 +31,8 @@ const EMPTY = {
   zipcode: '',
   roadAddress: '',
   detailAddress: '',
+  orderDate: todayStr(),
+  trackingNumber: '',
 };
 
 function joinAddress(road, detail) {
@@ -31,6 +40,15 @@ function joinAddress(road, detail) {
   const d = (detail || '').trim();
   if (r && d) return r + ' ' + d;
   return r || d;
+}
+
+function formatPriceInput(v) {
+  const s = v || '';
+  // 숫자·콤마 외 다른 문자가 있으면 자유입력으로 보고 그대로 둔다
+  if (/[^0-9,]/.test(s)) return s;
+  const digits = s.replace(/,/g, '');
+  if (!digits) return '';
+  return Number(digits).toLocaleString('ko-KR');
 }
 
 function buildMemo({ productName, price, customerName, phone, address, zipcode, pccc }) {
@@ -173,13 +191,15 @@ export default function OrdersPage() {
           zipcode: form.zipcode.trim(),
           address,
           memo,
+          order_date: form.orderDate || null,
+          tracking_number: form.trackingNumber.trim(),
           shipped: false,
         })
         .select()
         .single();
       if (e) throw e;
       setOrders((arr) => sortOrders(arr.concat(data)));
-      setForm(EMPTY);
+      setForm({ ...EMPTY, orderDate: todayStr() });
     } catch (err) {
       setError(err.message || '주문 추가에 실패했어요.');
     } finally {
@@ -249,6 +269,20 @@ export default function OrdersPage() {
       delete n[item.id];
       return n;
     });
+  }
+
+  async function updateTracking(item, val) {
+    setOrders((arr) =>
+      arr.map((x) => (x.id === item.id ? { ...x, tracking_number: val } : x))
+    );
+  }
+
+  async function saveTracking(item) {
+    const { error: e } = await supabase
+      .from('private_orders')
+      .update({ tracking_number: item.tracking_number || '' })
+      .eq('id', item.id);
+    if (e) setError(e.message);
   }
 
   async function copyMemo(item) {
@@ -330,8 +364,8 @@ export default function OrdersPage() {
             <input
               style={inputStyle}
               value={form.price}
-              onChange={(e) => setF('price', e.target.value)}
-              placeholder="예: 89,000원"
+              onChange={(e) => setF('price', formatPriceInput(e.target.value))}
+              placeholder="예: 89,000"
             />
           </div>
           <div>
@@ -359,6 +393,24 @@ export default function OrdersPage() {
               value={form.pccc}
               onChange={(e) => setF('pccc', e.target.value)}
               placeholder="예: P123456789012"
+            />
+          </div>
+          <div>
+            <label style={labelStyle}>주문날짜</label>
+            <input
+              type="date"
+              style={inputStyle}
+              value={form.orderDate}
+              onChange={(e) => setF('orderDate', e.target.value)}
+            />
+          </div>
+          <div>
+            <label style={labelStyle}>송장번호</label>
+            <input
+              style={inputStyle}
+              value={form.trackingNumber}
+              onChange={(e) => setF('trackingNumber', e.target.value)}
+              placeholder="나중에 입력 가능"
             />
           </div>
         </div>
@@ -518,6 +570,35 @@ export default function OrdersPage() {
                   </div>
                 ) : null}
                 {item.pccc ? <div>🔖 {item.pccc}</div> : null}
+                {item.order_date ? <div>📅 {item.order_date}</div> : null}
+              </div>
+
+              {/* 송장번호 (카드에서 입력/수정) */}
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 8,
+                  marginTop: 10,
+                }}
+              >
+                <span style={{ fontSize: 13, color: COL.sub, flexShrink: 0 }}>🚚 송장</span>
+                <input
+                  value={item.tracking_number || ''}
+                  onChange={(e) => updateTracking(item, e.target.value)}
+                  onBlur={() => saveTracking(item)}
+                  placeholder="송장번호 입력"
+                  style={{
+                    flex: 1,
+                    boxSizing: 'border-box',
+                    padding: '6px 10px',
+                    border: '1px solid ' + COL.border,
+                    borderRadius: 6,
+                    fontSize: 13,
+                    color: COL.ink,
+                    background: '#fff',
+                  }}
+                />
               </div>
 
               {/* 주문메모 */}
