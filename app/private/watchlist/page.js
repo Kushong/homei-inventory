@@ -61,6 +61,16 @@ function matchesQuery(it, q) {
   return hay.includes(q);
 }
 
+function sortItems(arr) {
+  const pinned = arr
+    .filter((i) => i.pinned)
+    .sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
+  const rest = arr
+    .filter((i) => !i.pinned)
+    .sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
+  return [...pinned, ...rest];
+}
+
 export default function WatchlistPage() {
   const supabase = createClient();
 
@@ -98,8 +108,9 @@ export default function WatchlistPage() {
         setError(e.message);
         return [];
       }
-      setItems(data || []);
-      return data || [];
+      const sorted = sortItems(data || []);
+      setItems(sorted);
+      return sorted;
     },
     [supabase]
   );
@@ -132,6 +143,7 @@ export default function WatchlistPage() {
   const byCat =
     activeCat === '전체' ? items : items.filter((it) => it.category === activeCat);
   const shown = q ? byCat.filter((it) => matchesQuery(it, q)) : byCat;
+  const pinnedShownCount = shown.filter((it) => it.pinned).length;
 
   const canDrag = activeCat === '전체' && !q;
 
@@ -262,6 +274,19 @@ export default function WatchlistPage() {
     }
   }
 
+  async function togglePin(item) {
+    setError('');
+    const { error: e } = await supabase
+      .from('private_watchlist')
+      .update({ pinned: !item.pinned })
+      .eq('id', item.id);
+    if (e) {
+      setError(e.message || '고정 변경에 실패했어요.');
+      return;
+    }
+    if (userId) loadItems(userId);
+  }
+
   // ---- 드래그 순서 변경 (전체 탭, 데스크톱 마우스) ----
   function onDragStart(e, index) {
     dragIndex.current = index;
@@ -280,10 +305,11 @@ export default function WatchlistPage() {
       return;
     }
     setItems((arr) => {
-      const next = arr.slice();
-      const moved = next.splice(from, 1)[0];
-      next.splice(index, 0, moved);
-      return next;
+      const pinned = arr.filter((i) => i.pinned);
+      const rest = arr.filter((i) => !i.pinned);
+      const moved = rest.splice(from, 1)[0];
+      rest.splice(index, 0, moved);
+      return [...pinned, ...rest];
     });
     dragIndex.current = index;
     setOverIndex(index);
@@ -297,12 +323,17 @@ export default function WatchlistPage() {
 
   async function persistOrder() {
     const cur = itemsRef.current;
+    const rest = cur.filter((i) => !i.pinned);
     const changed = [];
-    cur.forEach((t, i) => {
+    rest.forEach((t, i) => {
       if (t.sort_order !== i) changed.push({ id: t.id, order: i });
     });
     if (!changed.length) return;
-    setItems((arr) => arr.map((t, i) => ({ ...t, sort_order: i })));
+    setItems((arr) => {
+      const pinned = arr.filter((i) => i.pinned);
+      const r = arr.filter((i) => !i.pinned).map((t, i) => ({ ...t, sort_order: i }));
+      return [...pinned, ...r];
+    });
     try {
       await Promise.all(
         changed.map((c) =>
@@ -649,14 +680,17 @@ export default function WatchlistPage() {
         </div>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxWidth: 760 }}>
-          {shown.map((item, index) => (
+          {shown.map((item, index) => {
+            const rowDraggable = canDrag && !item.pinned;
+            const dragIdx = index - pinnedShownCount;
+            return (
             <div
               key={item.id}
-              draggable={canDrag}
-              onDragStart={canDrag ? (e) => onDragStart(e, index) : undefined}
-              onDragEnter={canDrag ? () => onDragEnter(index) : undefined}
-              onDragOver={canDrag ? (e) => e.preventDefault() : undefined}
-              onDragEnd={canDrag ? onDragEnd : undefined}
+              draggable={rowDraggable}
+              onDragStart={rowDraggable ? (e) => onDragStart(e, dragIdx) : undefined}
+              onDragEnter={rowDraggable ? () => onDragEnter(dragIdx) : undefined}
+              onDragOver={rowDraggable ? (e) => e.preventDefault() : undefined}
+              onDragEnd={rowDraggable ? onDragEnd : undefined}
               onClick={() => openEdit(item)}
               style={{
                 display: 'flex',
@@ -664,12 +698,14 @@ export default function WatchlistPage() {
                 gap: 12,
                 padding: '10px 12px',
                 borderRadius: 10,
-                border: '1px solid ' + (overIndex === index && canDrag ? COL.accent : COL.border),
-                background: '#fff',
+                border:
+                  '1px solid ' +
+                  (overIndex === dragIdx && rowDraggable ? COL.accent : COL.border),
+                background: item.pinned ? '#fffdf5' : '#fff',
                 cursor: 'pointer',
               }}
             >
-              {canDrag ? (
+              {rowDraggable ? (
                 <span
                   title="끌어서 순서 변경"
                   onClick={(e) => e.stopPropagation()}
@@ -768,6 +804,27 @@ export default function WatchlistPage() {
 
               <button
                 type="button"
+                title={item.pinned ? '고정 해제' : '맨 위 고정'}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  togglePin(item);
+                }}
+                style={{
+                  flexShrink: 0,
+                  border: 'none',
+                  background: 'transparent',
+                  color: item.pinned ? '#f59e0b' : '#d4d4d8',
+                  fontSize: 15,
+                  lineHeight: 1,
+                  cursor: 'pointer',
+                  padding: '4px 4px',
+                }}
+              >
+                {item.pinned ? '★' : '☆'}
+              </button>
+
+              <button
+                type="button"
                 title="삭제"
                 onClick={(e) => {
                   e.stopPropagation();
@@ -787,7 +844,8 @@ export default function WatchlistPage() {
                 ✕
               </button>
             </div>
-          ))}
+            );
+          })}
         </div>
       )}
 
