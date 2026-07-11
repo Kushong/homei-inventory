@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import ExchangeCard from '@/app/private/ExchangeCard';
 
 export const dynamic = 'force-dynamic';
 
@@ -11,6 +12,10 @@ export default function PrivateHomePage() {
       <p style={{ margin: '0 0 24px', fontSize: 14, color: '#71717a' }}>
         어느 컴퓨터에서 로그인해도 여기 저장한 메모·자료가 그대로 있어요.
       </p>
+
+      <div style={{ marginBottom: 24 }}>
+        <ExchangeCard maxWidth={380} />
+      </div>
 
       <div
         style={{
