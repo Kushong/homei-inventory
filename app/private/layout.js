@@ -17,7 +17,7 @@ const NAV = [
   { href: '/private/favorites', label: '즐겨찾기', icon: '⭐', ready: true },
   { href: '/private/watchlist', label: '워칭리스트', icon: '🎯', ready: true },
   { href: '/private/orders', label: '개인주문', icon: '📦', ready: true },
-  { href: '/private/lab', label: '실험실', icon: '🧪', ready: false },
+  { href: '/private/lab', label: '실험실', icon: '🧪', ready: true },
 ];
 
 export default async function PrivateLayout({ children }) {
