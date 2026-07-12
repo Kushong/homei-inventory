@@ -17,10 +17,49 @@ const COL = {
 /* ===================== 공휴일 캘린더 ===================== */
 
 const CC = {
-  KR: { flag: '🇰🇷', label: '한국', color: '#2563eb' },
-  CN: { flag: '🇨🇳', label: '중국', color: '#dc2626' },
-  KH: { flag: '🇰🇭', label: '캄보디아', color: '#7c3aed' },
+  KR: { label: '한국' },
+  CN: { label: '중국' },
+  KH: { label: '캄보디아' },
 };
+
+// 나라별 고정 마크: 한국=태극, 중국=빨간바탕 노란별, 캄보디아=앙코르와트(사원 이모지)
+function CountryMark({ c, size = 14 }) {
+  if (c === 'KR') {
+    return (
+      <svg viewBox="0 0 32 32" width={size} height={size} style={{ display: 'block' }} aria-label="한국">
+        <circle cx="16" cy="16" r="15.3" fill="#ffffff" stroke="#e4e4e7" strokeWidth="1" />
+        <path d="M16 1 A15 15 0 0 1 16 31 A7.5 7.5 0 0 1 16 16 A7.5 7.5 0 0 0 16 1 Z" fill="#CD2E3A" />
+        <path d="M16 31 A15 15 0 0 1 16 1 A7.5 7.5 0 0 1 16 16 A7.5 7.5 0 0 0 16 31 Z" fill="#0047A0" />
+      </svg>
+    );
+  }
+  if (c === 'CN') {
+    return (
+      <span
+        aria-label="중국"
+        style={{
+          width: size,
+          height: size,
+          borderRadius: 999,
+          background: '#de2910',
+          display: 'inline-flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          fontSize: Math.round(size * 0.68),
+          color: '#ffde00',
+          lineHeight: 1,
+        }}
+      >
+        ★
+      </span>
+    );
+  }
+  return (
+    <span aria-label="캄보디아" style={{ fontSize: Math.round(size * 0.98), lineHeight: 1 }}>
+      🛕
+    </span>
+  );
+}
 
 // 2026년 공휴일 (key: '월-일', 값: [{ c: 국가코드, n: 이름 }])
 // 한국: 제헌절 부활·지방선거 반영 / 중국: 국무원 확정본 / 캄보디아: Sub-Decree No.167
@@ -100,6 +139,7 @@ const HOLIDAYS_2026 = {
 };
 
 const WD = ['일', '월', '화', '수', '목', '금', '토'];
+const ORDER = ['KR', 'CN', 'KH'];
 
 function HolidayCalendar() {
   const now = new Date();
@@ -182,10 +222,10 @@ function HolidayCalendar() {
       </div>
 
       {/* 범례 */}
-      <div style={{ display: 'flex', gap: 12, marginBottom: 12, fontSize: 11, color: COL.sub }}>
-        {Object.keys(CC).map((k) => (
-          <span key={k} style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-            <span style={{ width: 8, height: 8, borderRadius: 999, background: CC[k].color, display: 'inline-block' }} />
+      <div style={{ display: 'flex', gap: 14, marginBottom: 12, fontSize: 11, color: COL.sub, alignItems: 'center', flexWrap: 'wrap' }}>
+        {ORDER.map((k) => (
+          <span key={k} style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+            <CountryMark c={k} size={14} />
             {CC[k].label}
           </span>
         ))}
@@ -209,56 +249,58 @@ function HolidayCalendar() {
         ))}
       </div>
 
-      {/* 날짜 그리드 */}
+      {/* 날짜 그리드 (휴일: 나라별 마크 표시) */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 2 }}>
         {cells.map((d, i) => {
           const dow = i % 7;
           const hs = holidaysFor(d);
           const isToday = isY2026 && ym.m === today.m && d === today.d && ym.y === today.y;
           const isHoliday = hs.length > 0;
-          const numColor =
-            !d ? 'transparent' : isHoliday || dow === 0 ? COL.danger : dow === 6 ? COL.accent : COL.ink2;
+          const numColor = !d
+            ? 'transparent'
+            : isHoliday || dow === 0
+            ? COL.danger
+            : dow === 6
+            ? COL.accent
+            : COL.ink2;
           const seen = [];
           hs.forEach((h) => {
             if (seen.indexOf(h.c) === -1) seen.push(h.c);
           });
+          const marks = ORDER.filter((c) => seen.indexOf(c) !== -1);
           return (
             <div
               key={i}
               style={{
-                minHeight: 42,
+                minHeight: 44,
                 display: 'flex',
                 flexDirection: 'column',
                 alignItems: 'center',
                 justifyContent: 'flex-start',
                 paddingTop: 4,
-                borderRadius: 8,
-                background: isToday ? '#eff6ff' : 'transparent',
-                border: isToday ? '1px solid ' + COL.accent : '1px solid transparent',
               }}
             >
               <span
                 style={{
-                  width: 22,
-                  height: 22,
+                  width: 24,
+                  height: 24,
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
                   borderRadius: 999,
                   fontSize: 13,
-                  fontWeight: isToday ? 800 : 500,
-                  color: isToday ? '#fff' : numColor,
-                  background: isToday ? COL.accent : 'transparent',
+                  fontWeight: isToday ? 800 : isHoliday ? 700 : 500,
+                  color: numColor,
+                  background: isToday ? '#eff6ff' : 'transparent',
+                  border: isToday ? '2px solid ' + COL.accent : '2px solid transparent',
+                  boxSizing: 'border-box',
                 }}
               >
                 {d || ''}
               </span>
-              <span style={{ display: 'flex', gap: 2, marginTop: 2, height: 6 }}>
-                {seen.map((c) => (
-                  <span
-                    key={c}
-                    style={{ width: 5, height: 5, borderRadius: 999, background: CC[c].color, display: 'inline-block' }}
-                  />
+              <span style={{ display: 'flex', gap: 2, marginTop: 3, height: 15, alignItems: 'center' }}>
+                {marks.map((c) => (
+                  <CountryMark key={c} c={c} size={14} />
                 ))}
               </span>
             </div>
@@ -273,18 +315,16 @@ function HolidayCalendar() {
         ) : monthList.length === 0 ? (
           <div style={{ fontSize: 12, color: COL.faint }}>이번 달 공휴일이 없어요.</div>
         ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
             {monthList.map((h, idx) => (
               <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 12 }}>
-                <span
-                  style={{ width: 7, height: 7, borderRadius: 999, background: CC[h.c].color, flexShrink: 0 }}
-                />
+                <span style={{ width: 16, display: 'inline-flex', justifyContent: 'center', flexShrink: 0 }}>
+                  <CountryMark c={h.c} size={14} />
+                </span>
                 <span style={{ color: COL.sub, width: 52, flexShrink: 0 }}>
                   {ym.m + 1}/{h.d} ({WD[h.dow]})
                 </span>
-                <span style={{ color: COL.ink2 }}>
-                  {CC[h.c].flag} {h.n}
-                </span>
+                <span style={{ color: COL.ink2 }}>{h.n}</span>
               </div>
             ))}
           </div>
