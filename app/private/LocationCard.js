@@ -75,6 +75,37 @@ function fmtDate(iso) {
   }
 }
 
+function buildMessage(it) {
+  const parts = [];
+  parts.push('📍 ' + (it.label || '위치'));
+  if (it.memo) parts.push(it.memo);
+  parts.push(Number(it.lat).toFixed(6) + ', ' + Number(it.lng).toFixed(6));
+  parts.push('https://www.google.com/maps/search/?api=1&query=' + it.lat + ',' + it.lng);
+  return parts.join('\n');
+}
+
+async function copyText(text) {
+  try {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      await navigator.clipboard.writeText(text);
+      return true;
+    }
+  } catch (e) { /* fall through */ }
+  try {
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.position = 'fixed';
+    ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.select();
+    document.execCommand('copy');
+    document.body.removeChild(ta);
+    return true;
+  } catch (e) {
+    return false;
+  }
+}
+
 export default function LocationCard({ maxWidth = 480 }) {
   const supabase = createClient();
 
@@ -92,13 +123,19 @@ export default function LocationCard({ maxWidth = 480 }) {
   const [editId, setEditId] = useState(null);
   const [editLabel, setEditLabel] = useState('');
   const [editMemo, setEditMemo] = useState('');
+  const [editLat, setEditLat] = useState(null);
+  const [editLng, setEditLng] = useState(null);
 
+  const [copiedId, setCopiedId] = useState(null);
   const [mapReady, setMapReady] = useState(false);
 
   const mapElRef = useRef(null);
   const mapRef = useRef(null);
   const markersRef = useRef(null);
   const pendingMarkerRef = useRef(null);
+  const editMarkerRef = useRef(null);
+  const pendingRef = useRef(null);
+  const editCoordsRef = useRef(null);
   const LRef = useRef(null);
 
   // ---- 유저 + 목록 로드 ----
@@ -153,13 +190,14 @@ export default function LocationCard({ maxWidth = 480 }) {
     if (mapRef.current) mapRef.current.setView([lat, lng], zoom);
   }, []);
 
-  // ---- 저장된 위치 마커 렌더 ----
+  // ---- 저장된 위치 마커 렌더 (수정 중인 항목은 초록 핀으로 대체하므로 제외) ----
   useEffect(() => {
     const L = LRef.current, layer = markersRef.current, map = mapRef.current;
     if (!L || !layer || !map || !mapReady) return;
     layer.clearLayers();
     const pts = [];
     list.forEach((it) => {
+      if (it.id === editId) return;
       const m = L.marker([it.lat, it.lng], {
         icon: L.divIcon({
           className: '', html: pinSvg('#2563eb'),
@@ -171,37 +209,70 @@ export default function LocationCard({ maxWidth = 480 }) {
       m.addTo(layer);
       pts.push([it.lat, it.lng]);
     });
-    if (pts.length && !pending) {
+    if (pts.length && !pending && !editId) {
       try { map.fitBounds(pts, { padding: [30, 30], maxZoom: 16 }); } catch (e) {}
     }
-  }, [list, mapReady, pending]);
+  }, [list, mapReady, pending, editId]);
 
-  // ---- 임시(현재 위치) 마커 ----
-  useEffect(() => {
+  // ---- 드래그 가능한 임시(현재 위치) 핀 ----
+  const placePendingMarker = (coords) => {
     const L = LRef.current, map = mapRef.current;
-    if (!L || !map || !mapReady) return;
-    if (pendingMarkerRef.current) {
-      try { map.removeLayer(pendingMarkerRef.current); } catch (e) {}
-      pendingMarkerRef.current = null;
-    }
-    if (pending) {
-      const m = L.marker([pending.lat, pending.lng], {
-        icon: L.divIcon({
-          className: '', html: pinSvg('#f97316'),
-          iconSize: [26, 34], iconAnchor: [13, 34],
-        }),
-      }).addTo(map);
-      pendingMarkerRef.current = m;
-      map.setView([pending.lat, pending.lng], 16);
-    }
-  }, [pending, mapReady]);
+    if (!L || !map) return;
+    if (pendingMarkerRef.current) { try { map.removeLayer(pendingMarkerRef.current); } catch (e) {} pendingMarkerRef.current = null; }
+    const m = L.marker([coords.lat, coords.lng], {
+      draggable: true,
+      icon: L.divIcon({ className: '', html: pinSvg('#f97316'), iconSize: [26, 34], iconAnchor: [13, 34] }),
+    }).addTo(map);
+    m.on('dragend', () => {
+      const ll = m.getLatLng();
+      const next = Object.assign({}, pendingRef.current, { lat: ll.lat, lng: ll.lng });
+      pendingRef.current = next;
+      setPending(next);
+    });
+    pendingMarkerRef.current = m;
+    map.setView([coords.lat, coords.lng], 16);
+  };
+
+  const clearPendingMarker = () => {
+    const map = mapRef.current;
+    if (pendingMarkerRef.current && map) { try { map.removeLayer(pendingMarkerRef.current); } catch (e) {} }
+    pendingMarkerRef.current = null;
+  };
+
+  // ---- 드래그 가능한 수정 핀 ----
+  const placeEditMarker = (coords) => {
+    const L = LRef.current, map = mapRef.current;
+    if (!L || !map) return;
+    if (editMarkerRef.current) { try { map.removeLayer(editMarkerRef.current); } catch (e) {} editMarkerRef.current = null; }
+    const m = L.marker([coords.lat, coords.lng], {
+      draggable: true,
+      icon: L.divIcon({ className: '', html: pinSvg('#16a34a'), iconSize: [26, 34], iconAnchor: [13, 34] }),
+    }).addTo(map);
+    m.on('dragend', () => {
+      const ll = m.getLatLng();
+      editCoordsRef.current = { lat: ll.lat, lng: ll.lng };
+      setEditLat(ll.lat);
+      setEditLng(ll.lng);
+    });
+    editMarkerRef.current = m;
+    map.setView([coords.lat, coords.lng], 17);
+  };
+
+  const clearEditMarker = () => {
+    const map = mapRef.current;
+    if (editMarkerRef.current && map) { try { map.removeLayer(editMarkerRef.current); } catch (e) {} }
+    editMarkerRef.current = null;
+  };
 
   const capture = async () => {
     setError(''); setLocating(true);
     try {
       const c = await getCurrentPos();
-      setPending({ lat: c.latitude, lng: c.longitude, accuracy: c.accuracy });
+      const coords = { lat: c.latitude, lng: c.longitude, accuracy: c.accuracy };
+      pendingRef.current = coords;
+      setPending(coords);
       setLabel(''); setMemo('');
+      placePendingMarker(coords);
     } catch (e) {
       if (e && e.code === 1) setError('위치 권한이 거부됐어요. 브라우저 설정에서 위치 접근을 허용해 주세요.');
       else if (e && e.code === 3) setError('위치 확인이 시간 초과됐어요. 다시 시도해 주세요.');
@@ -212,7 +283,8 @@ export default function LocationCard({ maxWidth = 480 }) {
   };
 
   const save = async () => {
-    if (!pending || !userId) return;
+    const cur = pendingRef.current;
+    if (!cur || !userId) return;
     setSaving(true); setError('');
     const { data, error: e } = await supabase
       .from('private_locations')
@@ -220,28 +292,51 @@ export default function LocationCard({ maxWidth = 480 }) {
         owner_id: userId,
         label: label.trim() || null,
         memo: memo.trim() || null,
-        lat: pending.lat,
-        lng: pending.lng,
-        accuracy: pending.accuracy == null ? null : pending.accuracy,
+        lat: cur.lat,
+        lng: cur.lng,
+        accuracy: cur.accuracy == null ? null : cur.accuracy,
       })
       .select()
       .single();
     setSaving(false);
     if (e) { setError(e.message); return; }
+    clearPendingMarker();
+    pendingRef.current = null;
     setList((prev) => [data, ...prev]);
     setPending(null); setLabel(''); setMemo('');
   };
 
-  const cancelPending = () => { setPending(null); setLabel(''); setMemo(''); };
+  const cancelPending = () => {
+    clearPendingMarker();
+    pendingRef.current = null;
+    setPending(null); setLabel(''); setMemo('');
+  };
 
-  const startEdit = (it) => { setEditId(it.id); setEditLabel(it.label || ''); setEditMemo(it.memo || ''); };
-  const cancelEdit = () => { setEditId(null); setEditLabel(''); setEditMemo(''); };
+  const startEdit = (it) => {
+    setEditId(it.id);
+    setEditLabel(it.label || '');
+    setEditMemo(it.memo || '');
+    setEditLat(it.lat);
+    setEditLng(it.lng);
+    editCoordsRef.current = { lat: it.lat, lng: it.lng };
+    placeEditMarker({ lat: it.lat, lng: it.lng });
+  };
+
+  const cancelEdit = () => {
+    clearEditMarker();
+    editCoordsRef.current = null;
+    setEditId(null); setEditLabel(''); setEditMemo(''); setEditLat(null); setEditLng(null);
+  };
+
   const saveEdit = async (id) => {
+    const co = editCoordsRef.current || { lat: editLat, lng: editLng };
     const { data, error: e } = await supabase
       .from('private_locations')
       .update({
         label: editLabel.trim() || null,
         memo: editMemo.trim() || null,
+        lat: co.lat,
+        lng: co.lng,
         updated_at: new Date().toISOString(),
       })
       .eq('id', id)
@@ -258,6 +353,13 @@ export default function LocationCard({ maxWidth = 480 }) {
     if (e) { setError(e.message); return; }
     setList((prev) => prev.filter((x) => x.id !== id));
     if (editId === id) cancelEdit();
+  };
+
+  const copyMsg = async (it) => {
+    const ok = await copyText(buildMessage(it));
+    if (!ok) { setError('복사에 실패했어요. 좌표를 길게 눌러 직접 복사해 주세요.'); return; }
+    setCopiedId(it.id);
+    setTimeout(() => setCopiedId((c) => (c === it.id ? null : c)), 1500);
   };
 
   const openIn = (url) => { if (typeof window !== 'undefined') window.open(url, '_blank', 'noopener'); };
@@ -292,11 +394,12 @@ export default function LocationCard({ maxWidth = 480 }) {
         {pending ? (
           <div style={pendingBox}>
             <div style={{ fontSize: 13, color: '#18181b', fontWeight: 700, marginBottom: 4 }}>
-              새 위치 · {pending.lat.toFixed(6)}, {pending.lng.toFixed(6)}
+              새 위치 · {Number(pending.lat).toFixed(6)}, {Number(pending.lng).toFixed(6)}
               {pending.accuracy ? (
                 <span style={{ color: '#71717a', fontWeight: 500 }}> (±{Math.round(pending.accuracy)}m)</span>
               ) : null}
             </div>
+            <div style={{ fontSize: 11, color: '#9a3412', marginBottom: 4 }}>🟠 주황 핀을 드래그해 위치를 미세 조정할 수 있어요.</div>
             <input value={label} onChange={(e) => setLabel(e.target.value)} placeholder="이름 (예: 집, 사무실)" style={input} />
             <textarea value={memo} onChange={(e) => setMemo(e.target.value)} placeholder="메모 (선택)" rows={2} style={{ ...input, resize: 'vertical' }} />
             <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
@@ -321,6 +424,10 @@ export default function LocationCard({ maxWidth = 480 }) {
                 <div>
                   <input value={editLabel} onChange={(e) => setEditLabel(e.target.value)} placeholder="이름" style={input} />
                   <textarea value={editMemo} onChange={(e) => setEditMemo(e.target.value)} placeholder="메모" rows={2} style={{ ...input, resize: 'vertical' }} />
+                  <div style={{ fontSize: 12, color: '#71717a', marginTop: 6 }}>
+                    {Number(editLat).toFixed(6)}, {Number(editLng).toFixed(6)}
+                  </div>
+                  <div style={{ fontSize: 11, color: '#15803d', marginTop: 4 }}>🟢 초록 핀을 드래그해 위치를 조정할 수 있어요.</div>
                   <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
                     <button onClick={() => saveEdit(it.id)} style={primaryBtn}>저장</button>
                     <button onClick={cancelEdit} style={ghostBtn}>취소</button>
@@ -341,7 +448,9 @@ export default function LocationCard({ maxWidth = 480 }) {
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 8 }}>
                     <button onClick={() => focusOn(it.lat, it.lng)} style={chip}>지도에서 보기</button>
                     <button onClick={() => openIn('https://www.google.com/maps/search/?api=1&query=' + it.lat + ',' + it.lng)} style={chip}>구글맵</button>
-                    <button onClick={() => openIn('https://www.openstreetmap.org/?mlat=' + it.lat + '&mlon=' + it.lng + '#map=17/' + it.lat + '/' + it.lng)} style={chip}>OSM</button>
+                    <button onClick={() => copyMsg(it)} style={{ ...chip, color: copiedId === it.id ? '#15803d' : '#3f3f46', borderColor: copiedId === it.id ? '#bbf7d0' : '#e4e4e7' }}>
+                      {copiedId === it.id ? '복사됨!' : '복사'}
+                    </button>
                     <button onClick={() => startEdit(it)} style={chip}>수정</button>
                     <button onClick={() => remove(it.id)} style={{ ...chip, color: '#dc2626', borderColor: '#fecaca' }}>삭제</button>
                   </div>
