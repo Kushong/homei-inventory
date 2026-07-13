@@ -76,12 +76,7 @@ function fmtDate(iso) {
 }
 
 function buildMessage(it) {
-  const parts = [];
-  parts.push('📍 ' + (it.label || '위치'));
-  if (it.memo) parts.push(it.memo);
-  parts.push(Number(it.lat).toFixed(6) + ', ' + Number(it.lng).toFixed(6));
-  parts.push('https://www.google.com/maps/search/?api=1&query=' + it.lat + ',' + it.lng);
-  return parts.join('\n');
+  return 'https://www.google.com/maps/search/?api=1&query=' + it.lat + ',' + it.lng;
 }
 
 async function copyText(text) {
@@ -119,6 +114,10 @@ export default function LocationCard({ maxWidth = 480 }) {
   const [label, setLabel] = useState('');
   const [memo, setMemo] = useState('');
   const [saving, setSaving] = useState(false);
+
+  const [q, setQ] = useState('');
+  const [searching, setSearching] = useState(false);
+  const [results, setResults] = useState([]);
 
   const [editId, setEditId] = useState(null);
   const [editLabel, setEditLabel] = useState('');
@@ -264,7 +263,39 @@ export default function LocationCard({ maxWidth = 480 }) {
     editMarkerRef.current = null;
   };
 
-  const capture = async () => {
+  // ---- 상호명·주소 검색 (OSM Nominatim, 키 없음) ----
+  const search = async () => {
+    const query = q.trim();
+    if (!query) return;
+    setSearching(true); setResults([]); setError('');
+    try {
+      const url = 'https://nominatim.openstreetmap.org/search?format=jsonv2&limit=6&addressdetails=1&accept-language=ko&q=' + encodeURIComponent(query);
+      const res = await fetch(url, { headers: { Accept: 'application/json' } });
+      const data = await res.json();
+      const arr = Array.isArray(data) ? data : [];
+      setResults(arr);
+      if (arr.length === 0) setError('검색 결과가 없어요. "구글맵에서 검색"으로 확인 후 지도에서 핀을 맞춰 보세요.');
+    } catch (e) {
+      setError('검색에 실패했어요. 잠시 후 다시 시도해 주세요.');
+    } finally {
+      setSearching(false);
+    }
+  };
+
+  const pickResult = (r) => {
+    const lat = parseFloat(r.lat), lng = parseFloat(r.lon);
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+    const coords = { lat, lng, accuracy: null };
+    pendingRef.current = coords;
+    setPending(coords);
+    setLabel(r.name || (r.display_name ? r.display_name.split(',')[0] : ''));
+    setMemo('');
+    setResults([]);
+    setQ('');
+    placePendingMarker(coords);
+  };
+
+    const capture = async () => {
     setError(''); setLocating(true);
     try {
       const c = await getCurrentPos();
@@ -383,6 +414,52 @@ export default function LocationCard({ maxWidth = 480 }) {
             {locating ? '위치 확인 중…' : '현재 위치 가져오기'}
           </button>
         </div>
+
+        <div style={{ display: 'flex', gap: 6, marginBottom: 8 }}>
+          <input
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter') search(); }}
+            placeholder="상호명·주소 검색 (예: Central Market)"
+            style={{ ...input, marginTop: 0, flex: 1 }}
+          />
+          <button onClick={search} disabled={searching} style={{ ...ghostBtn, opacity: searching ? 0.6 : 1, whiteSpace: 'nowrap' }}>
+            {searching ? '검색 중…' : '검색'}
+          </button>
+        </div>
+
+        {q.trim() ? (
+          <button
+            onClick={() => openIn('https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(q.trim()))}
+            style={{ background: 'none', border: 'none', color: '#2563eb', fontSize: 12, cursor: 'pointer', padding: '0 0 8px', textDecoration: 'underline' }}
+          >
+            구글맵에서 &quot;{q.trim()}&quot; 검색 →
+          </button>
+        ) : null}
+
+        {results.length > 0 ? (
+          <div style={{ border: '1px solid #e4e4e7', borderRadius: 10, overflow: 'hidden', marginBottom: 10 }}>
+            {results.map((r, i) => (
+              <button
+                key={(r.place_id || i) + ''}
+                onClick={() => pickResult(r)}
+                style={{
+                  display: 'block', width: '100%', textAlign: 'left', cursor: 'pointer',
+                  background: '#fff', border: 'none',
+                  borderBottom: i === results.length - 1 ? 'none' : '1px solid #f4f4f5',
+                  padding: '9px 11px',
+                }}
+              >
+                <div style={{ fontSize: 13, fontWeight: 700, color: '#18181b' }}>
+                  {r.name || (r.display_name ? r.display_name.split(',')[0] : '결과')}
+                </div>
+                <div style={{ fontSize: 11, color: '#71717a', marginTop: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {r.display_name || ''}
+                </div>
+              </button>
+            ))}
+          </div>
+        ) : null}
 
         <div
           ref={mapElRef}
