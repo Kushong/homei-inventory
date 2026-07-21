@@ -1,6 +1,6 @@
 'use client';
 
-import { Fragment, useMemo, useState } from 'react';
+import { Fragment, useMemo, useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import ImageUploader from './components/ImageUploader';
@@ -48,7 +48,7 @@ export default function Dashboard({ products, variants, stats, categories, isSup
     return m;
   }, [variants]);
 
-  // 행 펼치기 상태
+  // 행 펼치기 상태 (옵션/세트가가 있는 상품은 기본으로 펼쳐진 상태로 시작)
   const [expanded, setExpanded] = useState(() => new Set());
   function toggleExpand(id) {
     setExpanded((prev) => {
@@ -57,6 +57,17 @@ export default function Dashboard({ products, variants, stats, categories, isSup
       return next;
     });
   }
+
+  useEffect(() => {
+    const ids = new Set();
+    for (const p of products || []) {
+      const opts = variantsByProduct[p.product_id] || [];
+      const hasOpts = opts.length > 1;
+      const hasTiers = opts.some((v) => (v.tiers || []).length > 0);
+      if (hasOpts || hasTiers) ids.add(p.product_id);
+    }
+    setExpanded(ids);
+  }, [products, variantsByProduct]);
 
   // 상품 등록 모달
   const [showAdd, setShowAdd] = useState(false);
